@@ -45,7 +45,7 @@ class MasterNodeTest {
     }
 
     @Test
-    void testSendTaskToWorker() {
+    void testSendTaskToWorker() throws InterruptedException {
         MasterNode master = new MasterNode();
 
         // Задача: прибавить 10 к числу
@@ -80,5 +80,17 @@ class MasterNodeTest {
         // Проверка результатов
         assertEquals(15, task1.apply(5));
         assertEquals("HELLO", task2.apply("hello"));
+    }
+
+    @Test
+    void testResultAddedToQueue() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
+
+        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT);
+
+        // Забираем результат из очереди
+        Object result = master.getNextResult();
+        assertEquals(15, result); // Проверка, что результат попал в очередь
     }
 }
