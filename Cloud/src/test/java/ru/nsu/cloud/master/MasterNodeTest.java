@@ -1,14 +1,14 @@
-package ru.nsu.cloud;
+package ru.nsu.cloud.master;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import ru.nsu.cloud.api.RemoteTask;
-import ru.nsu.cloud.master.MasterNode;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,7 +29,7 @@ class MasterNodeTest {
                         RemoteTask<Integer, Integer> task = (RemoteTask<Integer, Integer>) ois.readObject();
                         Integer input = (Integer) ois.readObject();
 
-                        // Выполняем задачу и отправляем результат обратно
+                        // Выполняем задачу и отправляем результат
                         Integer result = task.apply(input);
                         oos.writeObject(result);
                         oos.flush();
@@ -45,52 +45,71 @@ class MasterNodeTest {
     }
 
     @Test
-    void testSendTaskToWorker() throws InterruptedException {
+    void testSendTaskToWorkerWithCallback() throws InterruptedException {
         MasterNode master = new MasterNode();
-
-        // Задача: прибавить 10 к числу
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
 
-        // Отправка задачи на фейковый Worker
-        Integer result = master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT);
+        AtomicReference<Object> callbackResult = new AtomicReference<>();
+        String taskId = master.submitTask(addTen);
 
-        // Проверка, что результат корректный
-        assertNotNull(result);
-        assertEquals(15, result); // 5 + 10 = 15
+        master.registerCallback(taskId, callbackResult::set);
+        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
+
+        // Ждем результат с колбэка
+        Thread.sleep(100);
+
+        assertEquals(15, callbackResult.get());
     }
 
     @Test
-    void testSubmitAndExecuteTasks() {
+    void testSubmitAndRetrieveTasks() {
         MasterNode master = new MasterNode();
 
-        // Создаем задачи
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
         RemoteTask<String, String> toUpperCase = String::toUpperCase;
 
-        // Отправляем задачи в Master
         master.submitTask(addTen);
         master.submitTask(toUpperCase);
 
-        // извлекаем и выполняем задачи
         @SuppressWarnings("unchecked")
         RemoteTask<Integer, Integer> task1 = (RemoteTask<Integer, Integer>) master.getNextTask();
         @SuppressWarnings("unchecked")
         RemoteTask<String, String> task2 = (RemoteTask<String, String>) master.getNextTask();
 
-        // Проверка результатов
         assertEquals(15, task1.apply(5));
         assertEquals("HELLO", task2.apply("hello"));
     }
 
     @Test
-    void testResultAddedToQueue() throws InterruptedException {
+    void testResultAddedToQueue() {
         MasterNode master = new MasterNode();
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
 
-        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT);
+        String taskId = master.submitTask(addTen);
+        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
 
-        // Забираем результат из очереди
+        // Ждем и проверяем, что результат попал в очередь
         Object result = master.getNextResult();
-        assertEquals(15, result); // Проверка, что результат попал в очередь
+        assertEquals(15, result);
+    }
+
+    @Test
+    void testCallbackExecution() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
+
+        AtomicReference<Object> callbackResult = new AtomicReference<>();
+        String taskId = master.submitTask(addTen);
+        master.registerCallback(taskId, result -> {
+            System.out.println("Callback received result: " + result);
+            callbackResult.set(result);
+        });
+
+        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
+
+        // Ожидание для обработки колбэка
+        Thread.sleep(100);
+
+        assertEquals(15, callbackResult.get());
     }
 }
