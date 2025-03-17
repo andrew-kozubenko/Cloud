@@ -1,5 +1,6 @@
 package ru.nsu.cloud.master;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import ru.nsu.cloud.api.RemoteTask;
@@ -7,8 +8,10 @@ import ru.nsu.cloud.api.RemoteTask;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.Executors;
+import java.util.List;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,26 +47,30 @@ class MasterNodeTest {
         });
     }
 
+
     @Test
     void testSendTaskToWorkerWithCallback() throws InterruptedException {
         MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
-
         AtomicReference<Object> callbackResult = new AtomicReference<>();
+
         String taskId = master.submitTask(addTen);
-
         master.registerCallback(taskId, callbackResult::set);
-        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
 
-        // Ждем результат с колбэка
-        Thread.sleep(100);
+        master.sendTaskToWorker(addTen, 5, taskId);
+
+        Thread.sleep(100); // Ждем обработку
 
         assertEquals(15, callbackResult.get());
     }
 
+
     @Test
     void testSubmitAndRetrieveTasks() {
         MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
 
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
         RemoteTask<String, String> toUpperCase = String::toUpperCase;
@@ -83,10 +90,12 @@ class MasterNodeTest {
     @Test
     void testResultAddedToQueue() {
         MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
 
         String taskId = master.submitTask(addTen);
-        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
+        master.sendTaskToWorker(addTen, 5, taskId);
 
         // Ждем и проверяем, что результат попал в очередь
         Object result = master.getNextResult();
@@ -96,6 +105,8 @@ class MasterNodeTest {
     @Test
     void testCallbackExecution() throws InterruptedException {
         MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
         RemoteTask<Integer, Integer> addTen = (input) -> input + 10;
 
         AtomicReference<Object> callbackResult = new AtomicReference<>();
@@ -105,11 +116,71 @@ class MasterNodeTest {
             callbackResult.set(result);
         });
 
-        master.sendTaskToWorker(addTen, 5, "localhost", TEST_PORT, taskId);
+        master.sendTaskToWorker(addTen, 5, taskId);
 
         // Ожидание для обработки колбэка
         Thread.sleep(100);
 
         assertEquals(15, callbackResult.get());
     }
+
+    @Test
+    void testDistributedMap() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
+        RemoteTask<Integer, Integer> multiplyByTwo = (input) -> input * 2;
+
+        List<Integer> inputs = List.of(1, 2, 3, 4, 5);
+        List<Integer> results = master.distributedMap(inputs, multiplyByTwo);
+
+        assertEquals(List.of(2, 4, 6, 8, 10), results);
+    }
+
+    @Test
+    void testDistributedStreamMap() {
+        MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
+        RemoteTask<Integer, Integer> square = (input) -> input * input;
+
+        Stream<Integer> inputStream = Stream.of(2, 3, 4);
+        Stream<Integer> resultStream = master.distributedStreamMap(inputStream, square);
+
+        assertEquals(List.of(4, 9, 16), resultStream.toList());
+    }
+
+    @Test
+    void testWorkerTimeoutHandling() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
+        RemoteTask<Integer, Integer> slowTask = (input) -> {
+            try {
+                Thread.sleep(5000); // Задача "зависает" на 5 секунд
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return input * 2;
+        };
+
+        String taskId = master.submitTask(slowTask);
+        master.sendTaskToWorker(slowTask, 5, taskId);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<Object> future = executor.submit(master::getNextResult);
+
+        try {
+            Object result = future.get(2, TimeUnit.SECONDS);
+            fail("Expected timeout, but got: " + result);
+        } catch (TimeoutException e) {
+            System.out.println("✅ TimeoutException caught as expected!");
+        } catch (ExecutionException e) {
+            System.err.println("❌ ExecutionException: " + e.getCause().getMessage());
+            fail("Unexpected ExecutionException occurred!");
+        } finally {
+            executor.shutdown();
+        }
+    }
+
 }
