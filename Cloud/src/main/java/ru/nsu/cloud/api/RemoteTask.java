@@ -1,10 +1,13 @@
 package ru.nsu.cloud.api;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.function.Function;
 
-@FunctionalInterface
 public interface RemoteTask<T, R> extends Function<T, R>, Serializable {
-    // Это позволяет передавать лямбда-выражения и объекты между узлами
+    default void setDependencies(List<SerializableFunction<?, ?>> dependencies) {
+        // По умолчанию ничего не делает, но конкретные задачи могут переопределять этот метод
+    }
 }
+
 

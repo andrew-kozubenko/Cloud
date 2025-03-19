@@ -1,8 +1,6 @@
 package ru.nsu.cloud.master;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.RemoteTask;
 
 import java.io.*;
@@ -16,35 +14,131 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MasterNodeTest {
-    private static final int TEST_PORT = 5000;
+    private static int TEST_PORT;
+    private static ExecutorService workerExecutor;
 
-    @BeforeAll
-    static void startMockWorker() {
-        Executors.newSingleThreadExecutor().submit(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(TEST_PORT)) {
-                while (true) {
+    @BeforeEach
+    void setUp() throws IOException {
+        TEST_PORT = getFreePort();
+        workerExecutor = Executors.newSingleThreadExecutor();
+        startMockWorker(TEST_PORT);
+    }
+
+    @AfterEach
+    void tearDown() {
+        workerExecutor.shutdownNow();
+    }
+
+    private int getFreePort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
+    private void startMockWorker(int port) {
+        workerExecutor.submit(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(port)) {
+                System.out.println("✅ Mock Worker is running on the port: " + port);
+                boolean running = true;
+
+                while (running) {
                     try (Socket socket = serverSocket.accept();
                          ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
                          ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
 
-                        // Получаем задачу и данные
-                        @SuppressWarnings("unchecked")
-                        RemoteTask<Integer, Integer> task = (RemoteTask<Integer, Integer>) ois.readObject();
-                        Integer input = (Integer) ois.readObject();
+                        Object received;
+                        while ((received = ois.readObject()) != null) {
+                            if ("SHUTDOWN".equals(received)) {
+                                System.out.println("Mock Worker got SHUTDOWN");
+                                running = false;
+                                break;
+                            }
 
-                        // Выполняем задачу и отправляем результат
-                        Integer result = task.apply(input);
-                        oos.writeObject(result);
-                        oos.flush();
+                            if ("HEARTBEAT".equals(received)) {
+                                oos.writeObject("ALIVE");
+                                oos.flush();
+                                continue;
+                            }
 
+                            @SuppressWarnings("unchecked")
+                            RemoteTask<Integer, Integer> task = (RemoteTask<Integer, Integer>) received;
+                            Integer input = (Integer) ois.readObject();
+                            Integer result = task.apply(input);
+                            oos.writeObject(result);
+                            oos.flush();
+                        }
+                    } catch (EOFException ignored) {
                     } catch (Exception e) {
+                        if (!running) {
+                            System.out.println("Mock Worker is coming to an end...");
+                            break;
+                        }
                         e.printStackTrace();
                     }
                 }
+
+                System.out.println("Mock Worker shuts down...");
+                serverSocket.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         });
+    }
+
+
+
+    @Test
+    void testShutdownWorkers() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
+        master.shutdownWorkers(); // Отправляем команду SHUTDOWN
+        Thread.sleep(100); // Ждем завершения
+
+        // Проверяем, что воркер больше не отвечает
+        try (Socket socket = new Socket("localhost", TEST_PORT);
+             ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
+            oos.writeObject("HEARTBEAT");
+            oos.flush();
+            String response = (String) ois.readObject();
+            fail("The worker was expected to be disabled, but it is still responding: " + response);
+        } catch (IOException | ClassNotFoundException e) {
+            System.out.println("✅ The Worker has really disconnected!");
+        }
+    }
+
+    @Test
+    void testWorkerTimeoutHandling() throws InterruptedException {
+        MasterNode master = new MasterNode();
+        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
+
+        RemoteTask<Integer, Integer> slowTask = (input) -> {
+            try {
+                Thread.sleep(5000); // Долгая задача (5 секунд)
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return input * 2;
+        };
+
+        String taskId = master.submitTask(slowTask);
+        master.sendTaskToWorker(slowTask, 5, taskId);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<Object> future = executor.submit(master::getNextResult);
+
+        try {
+            Object result = future.get(2, TimeUnit.SECONDS);
+            fail("Expected timeout, but got: " + result);
+        } catch (TimeoutException e) {
+            System.out.println("✅ TimeoutException caught as expected!");
+        } catch (ExecutionException e) {
+            System.err.println("❌ ExecutionException: " + e.getCause().getMessage());
+            fail("Unexpected ExecutionException occurred!");
+        } finally {
+            executor.shutdown();
+        }
     }
 
 
@@ -149,38 +243,4 @@ class MasterNodeTest {
 
         assertEquals(List.of(4, 9, 16), resultStream.toList());
     }
-
-    @Test
-    void testWorkerTimeoutHandling() throws InterruptedException {
-        MasterNode master = new MasterNode();
-        master.registerWorker("localhost", TEST_PORT); // Регистрация воркера ✅
-
-        RemoteTask<Integer, Integer> slowTask = (input) -> {
-            try {
-                Thread.sleep(5000); // Задача "зависает" на 5 секунд
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return input * 2;
-        };
-
-        String taskId = master.submitTask(slowTask);
-        master.sendTaskToWorker(slowTask, 5, taskId);
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<Object> future = executor.submit(master::getNextResult);
-
-        try {
-            Object result = future.get(2, TimeUnit.SECONDS);
-            fail("Expected timeout, but got: " + result);
-        } catch (TimeoutException e) {
-            System.out.println("✅ TimeoutException caught as expected!");
-        } catch (ExecutionException e) {
-            System.err.println("❌ ExecutionException: " + e.getCause().getMessage());
-            fail("Unexpected ExecutionException occurred!");
-        } finally {
-            executor.shutdown();
-        }
-    }
-
 }

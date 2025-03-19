@@ -1,6 +1,7 @@
 package ru.nsu.cloud.master;
 
 import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
 
 import java.io.*;
 import java.net.Socket;
@@ -8,37 +9,56 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class MasterNode {
-    private final BlockingQueue<RemoteTask<?, ?>> taskQueue = new LinkedBlockingQueue<>();
+    private final Map<String, RemoteTask<?, ?>> taskMap = new ConcurrentHashMap<>();
+    private final BlockingQueue<String> taskQueue = new LinkedBlockingQueue<>();
     private final BlockingQueue<Object> resultQueue = new LinkedBlockingQueue<>();
     private final Map<String, Consumer<Object>> callbacks = new ConcurrentHashMap<>();
     private final List<WorkerNodeInfo> workers = new CopyOnWriteArrayList<>();
     private final AtomicInteger currentWorkerIndex = new AtomicInteger(0);
     private final AtomicInteger taskCount = new AtomicInteger(0);
+    int cores = Runtime.getRuntime().availableProcessors();
+    private final ExecutorService taskExecutor = Executors.newFixedThreadPool(cores);
+    private final Map<WorkerNodeInfo, Socket> workerSockets = new ConcurrentHashMap<>();
+
+    public void connectToWorker(WorkerNodeInfo worker) {
+        try {
+            if (workerSockets.containsKey(worker) && !workerSockets.get(worker).isClosed()) {
+                System.out.println("Already connected to worker: " + worker);
+                return;
+            }
+
+            Socket socket = new Socket(worker.getHost(), worker.getPort());
+            workerSockets.put(worker, socket);
+            System.out.println("Connected to worker: " + worker);
+        } catch (IOException e) {
+            System.err.println("Failed to connect to worker: " + worker);
+        }
+    }
+
 
     public String submitTask(RemoteTask<?, ?> task) {
         String taskId = UUID.randomUUID().toString();
-        try {
-            taskQueue.put(task);
-            System.out.println("Task added to queue: " + taskId);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            System.err.println("Failed to add task to queue: " + e.getMessage());
-        }
+        taskMap.put(taskId, task);
+        taskQueue.add(taskId); // Добавляем ID задачи в очередь
         return taskId;
     }
 
     public RemoteTask<?, ?> getNextTask() {
         try {
-            return taskQueue.take();
+            String taskId = taskQueue.take(); // Ждём, пока появится задача
+            return taskMap.remove(taskId);   // Удаляем задачу из taskMap
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.err.println("Failed to retrieve task from queue: " + e.getMessage());
             return null;
         }
     }
+
 
     public Object getNextResult() {
         try {
@@ -50,42 +70,96 @@ public class MasterNode {
         }
     }
 
-    public <T, R> void sendTaskToWorker(RemoteTask<T, R> task, T inputData, String taskId) {
-        new Thread(() -> {
-            WorkerNodeInfo worker = selectWorker();
-            if (worker == null) {
-                System.err.println("No available workers!");
-                return;
-            }
+    public <T, R> void sendTaskToWorker(RemoteTask<T, R> task,
+                                        List<SerializableFunction<?, ?>> dependencies,
+                                        List<T> inputBatch,
+                                        String taskId) {
+        WorkerNodeInfo worker = selectWorker();
+        if (worker == null) {
+            System.err.println("No available workers!");
+            return;
+        }
 
-            try (Socket socket = new Socket(worker.getHost(), worker.getPort());
-                 ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
-                 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
-
-                // Отправляем задачу
-                oos.writeObject(task);
-                oos.writeObject(inputData);
-                oos.flush();
-
-                // Получаем результат
-                R result = (R) ois.readObject();
-                System.out.println("Received result from Worker: " + result);
-
-                // Сохраняем результат
-                resultQueue.put(result);
-
-                // Вызываем колбэк
-                Consumer<Object> callback = callbacks.remove(taskId);
-                if (callback != null) {
-                    callback.accept(result);
+        taskExecutor.submit(() -> {
+            try {
+                Socket workerSocket = workerSockets.get(worker);
+                if (workerSocket == null || workerSocket.isClosed()) {
+                    System.err.println("Worker socket closed! Trying to reconnect...");
+                    connectToWorker(worker);
+                    workerSocket = workerSockets.get(worker);
                 }
 
-            } catch (IOException | ClassNotFoundException | InterruptedException e) {
+                // Объявляем socket как final
+                final Socket socket = workerSocket;
+                if (socket == null) {
+                    System.err.println("Failed to connect to worker!");
+                    return;
+                }
+
+                ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+                oos.writeObject(task);         // Отправляем саму задачу
+                oos.writeObject(dependencies); // Отправляем зависимости (функции)
+                oos.writeObject(inputBatch);   // Отправляем список входных данных (batch)
+                oos.flush();
+
+                taskExecutor.submit(() -> {
+                    try {
+                        readWorkerResponse(socket, taskId); // Теперь socket не изменяется
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+
+            } catch (IOException e) {
                 e.printStackTrace();
-                worker.setAvailable(false); // Помечаем Worker как недоступный
+                worker.setAvailable(false);
             }
-        }).start();
+        });
     }
+
+
+
+    private void readWorkerResponse(Socket socket, String taskId) {
+        try {
+            System.out.println("Reading result from worker...");
+            ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
+            Object result = ois.readObject();
+            System.out.println("Received result from Worker: " + result);
+
+            resultQueue.put(result);
+
+            System.out.println("Invoking callback for task " + taskId + " with result: " + result);
+            Consumer<Object> callback = callbacks.remove(taskId);
+            if (callback != null) {
+                callback.accept(result);
+            }
+        } catch (IOException | ClassNotFoundException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void startHeartbeat() {
+        ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
+        heartbeatScheduler.scheduleAtFixedRate(() -> {
+            for (WorkerNodeInfo worker : workers) {
+                try {
+                    Socket socket = workerSockets.get(worker);
+                    if (socket == null || socket.isClosed()) {
+                        System.err.println("Worker " + worker + " is unreachable! Reconnecting...");
+                        connectToWorker(worker);
+                    } else {
+                        ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+                        oos.writeObject("HEARTBEAT");
+                        oos.flush();
+                    }
+                } catch (IOException e) {
+                    worker.setAvailable(false);
+                    System.err.println("Lost connection to worker " + worker);
+                }
+            }
+        }, 0, 5, TimeUnit.SECONDS);
+    }
+
 
     private WorkerNodeInfo selectWorker() {
         return workers.stream()
@@ -108,89 +182,92 @@ public class MasterNode {
     }
 
     public void registerCallback(String taskId, Consumer<Object> callback) {
-        System.out.println("Колбэк зарегистрирован для задачи: " + taskId);
+        System.out.println("Callback is registered for the issue: " + taskId);
         callbacks.put(taskId, callback);
     }
 
     public void registerWorker(String host, int port) {
-        workers.add(new WorkerNodeInfo(host, port));
+        WorkerNodeInfo worker = new WorkerNodeInfo(host, port);
+        workers.add(worker);
+
+        connectToWorker(worker); // Устанавливаем постоянное соединение
         System.out.println("Worker registered: " + host + ":" + port);
     }
 
-    public <T, R> List<R> distributedMap(List<T> inputs, RemoteTask<T, R> task) throws InterruptedException {
-        List<CompletableFuture<R>> futures = new ArrayList<>();
-        Map<String, Integer> taskIndexMap = new HashMap<>(); // Связываем taskId с индексом в списке
-        Map<String, CompletableFuture<R>> taskFutureMap = new HashMap<>();
 
+    public <T, R> List<R> distributedMap(List<T> inputs, RemoteTask<T, R> task, List<SerializableFunction<?, ?>> dependencies) throws InterruptedException {
+        Map<String, List<Integer>> taskIndexMap = new HashMap<>(); // Связываем taskId с индексами входов
+        Map<String, CompletableFuture<List<R>>> taskFutureMap = new HashMap<>(); // Future для batch-результатов
 
-        for (int i = 0; i < inputs.size(); i++) {
-            T input = inputs.get(i);
+        int batchSize = 5; // Можно настроить размер batch
+        for (int i = 0; i < inputs.size(); i += batchSize) {
+            List<T> batch = inputs.subList(i, Math.min(i + batchSize, inputs.size()));
             String taskId = submitTask(task);
-            taskIndexMap.put(taskId, i);
+            taskIndexMap.put(taskId, IntStream.range(i, i + batch.size()).boxed().collect(Collectors.toList()));
 
-            CompletableFuture<R> future = new CompletableFuture<>();
-            taskFutureMap.put(taskId, future); // Привязываем future к taskId
-            registerCallback(taskId, result -> future.complete((R) result));
+            CompletableFuture<List<R>> future = new CompletableFuture<>();
+            taskFutureMap.put(taskId, future);
+            registerCallback(taskId, result -> future.complete((List<R>) result));
 
-            sendTaskToWorker(task, input, taskId);
-            futures.add(future);
+            sendTaskToWorker(task, dependencies, batch, taskId); // Отправляем batch
         }
 
-        // Ожидание результатов с обработкой исключений
+        // Ожидание результатов
         List<R> results = new ArrayList<>(Collections.nCopies(inputs.size(), null));
 
-        for (Map.Entry<String, Integer> entry : taskIndexMap.entrySet()) {
+        for (Map.Entry<String, List<Integer>> entry : taskIndexMap.entrySet()) {
             String taskId = entry.getKey();
-            int index = entry.getValue();
-            CompletableFuture<R> future = taskFutureMap.get(taskId); // Получаем future по taskId
+            List<Integer> indices = entry.getValue();
+            CompletableFuture<List<R>> future = taskFutureMap.get(taskId);
 
             try {
-                R result = future.get(2, TimeUnit.SECONDS); // Ожидание результата
-                results.set(index, result);
+                List<R> batchResults = future.get(2, TimeUnit.SECONDS); // Ждем batch-ответ
+                for (int j = 0; j < indices.size(); j++) {
+                    results.set(indices.get(j), batchResults.get(j));
+                }
             } catch (ExecutionException | TimeoutException e) {
-                System.err.println("Ошибка выполнения задачи: " + e.getMessage());
+                System.err.println("Task completion error: " + e.getMessage());
             }
         }
 
         return results;
     }
 
-
-    public <T, R> Stream<R> parallelStreamMap(List<T> data, RemoteTask<T, R> task) {
-        try {
-            List<R> results = distributedMap(data, task);
-            return results.stream();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Stream.empty();
-        }
-    }
-
-    public <T, R> Stream<R> distributedStreamMap(Stream<T> data, RemoteTask<T, R> task) {
+    public <T, R> Stream<R> distributedStreamMap(Stream<T> data, RemoteTask<T, R> task, List<SerializableFunction<?, ?>> dependencies) {
         Iterator<T> iterator = data.iterator();
         BlockingQueue<R> resultQueue = new LinkedBlockingQueue<>();
-        AtomicInteger activeTasks = new AtomicInteger(0); // Счётчик активных задач
+        AtomicInteger activeTasks = new AtomicInteger(0);
         CompletableFuture<Void> completionFuture = new CompletableFuture<>();
+
+        int batchSize = 10; // Размер батча, можно настроить
+        List<T> batch = new ArrayList<>(batchSize);
 
         new Thread(() -> {
             while (iterator.hasNext()) {
-                T next = iterator.next();
-                String taskId = submitTask(task);
-                activeTasks.incrementAndGet();
+                batch.add(iterator.next());
 
-                registerCallback(taskId, result -> {
-                    try {
-                        resultQueue.put((R) result);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } finally {
-                        if (activeTasks.decrementAndGet() == 0) {
-                            completionFuture.complete(null);
+                // Отправляем батч при достижении batchSize или если больше нет элементов
+                if (batch.size() == batchSize || !iterator.hasNext()) {
+                    String taskId = submitTask(task);
+                    activeTasks.incrementAndGet();
+
+                    registerCallback(taskId, result -> {
+                        try {
+                            synchronized (resultQueue) {
+                                ((List<R>) result).forEach(resultQueue::offer); // Добавляем весь результат
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        } finally {
+                            if (activeTasks.decrementAndGet() == 0) {
+                                completionFuture.complete(null);
+                            }
                         }
-                    }
-                });
+                    });
 
-                sendTaskToWorker(task, next, taskId);
+                    sendTaskToWorker(task, dependencies, new ArrayList<>(batch), taskId); // Передаем копию батча
+                    batch.clear(); // Очищаем для следующего набора
+                }
             }
             if (activeTasks.get() == 0) {
                 completionFuture.complete(null);
@@ -212,6 +289,35 @@ public class MasterNode {
             }
         });
     }
+
+
+
+    public void shutdownWorkers() {
+        Iterator<WorkerNodeInfo> iterator = workers.iterator();
+        while (iterator.hasNext()) {
+            WorkerNodeInfo worker = iterator.next();
+            try {
+                Socket socket = workerSockets.get(worker);
+                if (socket != null && !socket.isClosed()) {
+                    ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+                    oos.writeObject("SHUTDOWN");
+                    oos.flush();
+                    socket.close();
+                }
+                System.out.println("Worker " + worker + " has been shut down.");
+            } catch (IOException e) {
+                System.err.println("Failed to shut down worker " + worker);
+            } finally {
+                iterator.remove(); // Удаляем воркера из списка
+            }
+        }
+
+        // Даем время завершиться серверному потоку
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ignored) {}
+    }
+
 
 
 }
