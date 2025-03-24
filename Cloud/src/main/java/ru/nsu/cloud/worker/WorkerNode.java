@@ -13,8 +13,8 @@ import java.util.logging.Logger;
 public class WorkerNode {
     private static final Logger logger = Logger.getLogger(WorkerNode.class.getName());
     private final int port;
-    private final ExecutorService threadPool = Executors.newFixedThreadPool(4); // Обрабатываем задачи в 4 потоках
-    private volatile boolean running = true;  // Управляем работой воркера
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(4);
+    private volatile boolean running = true;
 
     public WorkerNode(int port) {
         this.port = port;
@@ -31,7 +31,7 @@ public class WorkerNode {
                     threadPool.execute(() -> handleRequest(socket));
                 } catch (SocketException e) {
                     logger.warning("ServerSocket closed, stopping worker...");
-                    break; // Выходим из цикла, если сокет закрыт
+                    break;
                 } catch (IOException e) {
                     if (running) {
                         logger.log(Level.WARNING, "Error accepting connection", e);
@@ -43,39 +43,51 @@ public class WorkerNode {
         } finally {
             shutdownWorker();
         }
-
     }
 
-    private void handleRequest(Socket socket) {
+    private <T, R> void handleRequest(Socket socket) {
         try (ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
              ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
 
             logger.info("Reading task from client...");
 
-            // Читаем задачу
-            @SuppressWarnings("unchecked")
-            RemoteTask<Object, Object> task = (RemoteTask<Object, Object>) ois.readObject();
-            Object input = ois.readObject();
+            while (running) {
+                Object received;
+                try {
+                    received = ois.readObject();
+                } catch (EOFException | SocketException e) {
+                    logger.warning("Master disconnected. Shutting down worker.");
+                    stopWorker();
+                    break;
+                }
 
-            // Выполняем задачу
-            logger.info("Executing task...");
-            Object result = task.apply(input);
+                if ("SHUTDOWN".equals(received)) {
+                    logger.info("Received SHUTDOWN command. Exiting...");
+                    stopWorker();
+                    break;
+                }
 
-            // Отправляем результат обратно
-            logger.info("Sending result back to client...");
-            oos.writeObject(result);
-            oos.flush();
+                if (received instanceof RemoteTask<?, ?> rawTask) {
+                    @SuppressWarnings("unchecked")
+                    RemoteTask<T, R> task = (RemoteTask<T, R>) rawTask;
 
-        } catch (EOFException | SocketException e) {
-            logger.warning("Master disconnected. Shutting down worker.");
-            stopWorker();
+                    @SuppressWarnings("unchecked")
+                    T input = (T) ois.readObject();
 
+                    logger.info("Executing task...");
+                    R result = task.apply(input);
+
+                    logger.info("Sending result back to client...");
+                    oos.writeObject(result);
+                    oos.flush();
+                }
+            }
         } catch (IOException | ClassNotFoundException e) {
             logger.log(Level.SEVERE, "Error while processing request", e);
         } finally {
             try {
                 socket.close();
-                logger.info("Socket closed: " + socket.isClosed());
+                logger.info("Socket closed.");
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Error closing socket", e);
             }
@@ -84,6 +96,7 @@ public class WorkerNode {
 
     public void stopWorker() {
         running = false;
+        shutdownWorker();
     }
 
     private void shutdownWorker() {
@@ -91,8 +104,12 @@ public class WorkerNode {
         threadPool.shutdown();
     }
 
+    public boolean isRunning() {
+        return running;
+    }
+
     public static void main(String[] args) {
-        WorkerNode worker = new WorkerNode(5000); // Запускаем на порту 5000
+        WorkerNode worker = new WorkerNode(5000);
         worker.start();
     }
 }

@@ -12,7 +12,6 @@ import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static java.lang.Thread.sleep;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WorkerNodeTest {
@@ -30,7 +29,7 @@ class WorkerNodeTest {
     @AfterEach
     void tearDown() throws InterruptedException {
         executor.shutdownNow();
-        sleep(500); // Даем время воркеру закрыться
+        Thread.sleep(500); // Даем время воркеру закрыться
     }
 
     @Test
@@ -104,6 +103,22 @@ class WorkerNodeTest {
         }
     }
 
+    @Test
+    void testWorkerHandlesShutdownCommand() throws Exception {
+        // Создаем сокет клиента
+        try (Socket clientSocket = new Socket("localhost", TEST_PORT);
+             ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
+             ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
+
+            // Отправляем команду SHUTDOWN
+            oos.writeObject("SHUTDOWN");
+            oos.flush();
+
+            // Проверяем, что воркер завершил свою работу
+            assertFalse(worker.isRunning(), "Worker должен завершить свою работу после команды SHUTDOWN.");
+        }
+    }
+
 //    @Test
 //    void testWorkerClosesSocketAfterProcessing() throws Exception {
 //        RemoteTask<Integer, Integer> task = input -> input * 3;
@@ -118,12 +133,9 @@ class WorkerNodeTest {
 //
 //            int result = (int) ois.readObject();
 //            assertEquals(12, result);
-//            sleep(1000);
 //
-//            // Проверяем, что сокет закрывается после работы
-//            System.out.println(clientSocket.isClosed());
-//            System.out.println(clientSocket.isInputShutdown());
-//            assertTrue(clientSocket.isClosed() || clientSocket.isInputShutdown(), "Сокет должен закрываться после обработки задачи.");
+//            // Проверяем, что сокет закрывается после обработки
+//            assertTrue(clientSocket.isClosed(), "Сокет должен быть закрыт после обработки задачи.");
 //        }
 //    }
 }
