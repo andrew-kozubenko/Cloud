@@ -1,91 +1,84 @@
 package ru.nsu.cloud.master;
 
 import org.junit.jupiter.api.*;
+import org.mockito.ArgumentCaptor;
 import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class MasterNodeTest {
-    private static int TEST_PORT;
-    private static ExecutorService workerExecutor;
+    private MasterNode masterNode;
+    private WorkerNodeInfo mockWorker;
+    private Socket mockSocket;
+    private ObjectOutputStream mockOos;
+    private ExecutorService mockExecutor;
 
     @BeforeEach
-    void setUp() throws IOException {
-        TEST_PORT = getFreePort();
-        workerExecutor = Executors.newSingleThreadExecutor();
-        startMockWorker(TEST_PORT);
-    }
+    void setUp() throws Exception {
+        masterNode = new MasterNode();
 
-    @AfterEach
-    void tearDown() {
-        workerExecutor.shutdownNow();
-    }
+        // Мокируем воркера
+        mockWorker = mock(WorkerNodeInfo.class);
+        when(mockWorker.isAvailable()).thenReturn(true);
+        when(mockWorker.getHost()).thenReturn("localhost");
+        when(mockWorker.getPort()).thenReturn(1234);
 
-    private int getFreePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
-    }
+        // Мокируем сокет и потоки
+        mockSocket = mock(Socket.class);
+        mockOos = mock(ObjectOutputStream.class);
+        when(mockSocket.getOutputStream()).thenReturn(mockOos);
 
-    private void startMockWorker(int port) {
-        workerExecutor.submit(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
-                System.out.println("✅ Mock Worker is running on the port: " + port);
-                boolean running = true;
+        // Подменяем карту сокетов
+        masterNode.getWorkerSockets().put(mockWorker, mockSocket);
 
-                while (running) {
-                    try (Socket socket = serverSocket.accept();
-                         ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
-                         ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
+        // Мокируем выбор воркера
+        MasterNode spyMaster = spy(masterNode);
+        doReturn(mockWorker).when(spyMaster).selectWorker();
+        masterNode = spyMaster;
 
-                        Object received;
-                        while ((received = ois.readObject()) != null) {
-                            if ("SHUTDOWN".equals(received)) {
-                                System.out.println("Mock Worker got SHUTDOWN");
-                                running = false;
-                                break;
-                            }
-
-                            if ("HEARTBEAT".equals(received)) {
-                                oos.writeObject("ALIVE");
-                                oos.flush();
-                                continue;
-                            }
-
-                            @SuppressWarnings("unchecked")
-                            RemoteTask<Integer, Integer> task = (RemoteTask<Integer, Integer>) received;
-                            Integer input = (Integer) ois.readObject();
-                            Integer result = task.apply(input);
-                            oos.writeObject(result);
-                            oos.flush();
-                        }
-                    } catch (EOFException ignored) {
-                    } catch (Exception e) {
-                        if (!running) {
-                            System.out.println("Mock Worker is coming to an end...");
-                            break;
-                        }
-                        e.printStackTrace();
-                    }
-                }
-
-                System.out.println("Mock Worker shuts down...");
-                serverSocket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        });
+        // Подменяем ExecutorService, чтобы избежать реального выполнения
+        mockExecutor = mock(ExecutorService.class);
+        masterNode.setTaskExecutor(mockExecutor);
     }
 
 
+    void testSendTaskToWorker() throws Exception {
+        // Мокируем задачу и зависимости
+        RemoteTask<String, String> mockTask = mock(RemoteTask.class);
+        List<SerializableFunction<?, ?>> dependencies = Collections.emptyList();
+        List<String> inputBatch = List.of("Task1", "Task2");
+        String taskId = "test-task-id";
+
+        // Вызываем sendTaskToWorker
+        masterNode.sendTaskToWorker(mockTask, dependencies, inputBatch, taskId);
+
+        // Захватываем переданный Runnable в ExecutorService
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(mockExecutor).submit(captor.capture());
+
+        // Запускаем захваченный Runnable (имитируем выполнение потока)
+        captor.getValue().run();
+
+        // Проверяем, что сокет использовался и данные отправлены
+        verify(mockOos, times(1)).writeObject(mockTask);
+        verify(mockOos, times(1)).writeObject(dependencies);
+        verify(mockOos, times(1)).writeObject(inputBatch);
+        verify(mockOos, times(1)).flush();
+
+        // Проверяем запуск потока для чтения ответа
+        verify(mockExecutor, times(2)).submit(any(Runnable.class));
+    }
 
     @Test
     void testShutdownWorkers() throws InterruptedException {
