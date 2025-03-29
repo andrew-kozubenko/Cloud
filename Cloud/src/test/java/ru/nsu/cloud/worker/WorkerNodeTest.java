@@ -1,66 +1,68 @@
 package ru.nsu.cloud.worker;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.master.Master;
+import ru.nsu.cloud.worker.WorkerNode;
 
-import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.concurrent.*;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
-class WorkerNodeTest {
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class MasterWorkerTest {
     private static final int TEST_PORT = 5001;
-    private ServerSocket serverSocket;
+    private Master master;
     private WorkerNode worker;
-    private Future<?> workerFuture;
+    private ExecutorService executorService;
 
-    @BeforeEach
-    void setUp() throws IOException {
-        serverSocket = new ServerSocket(TEST_PORT);
+    @BeforeAll
+    void setUp() {
+        executorService = Executors.newFixedThreadPool(2);
 
+        // Запускаем Мастера
+        master = new Master(TEST_PORT);
+        executorService.submit(master::start);
+
+        // Запускаем Воркера
         worker = new WorkerNode("localhost", TEST_PORT);
-        workerFuture = Executors.newSingleThreadExecutor().submit(worker::start);
+        executorService.submit(worker::start);
+
+        // Даем время воркеру подключиться к мастеру
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    @AfterEach
+    @AfterAll
     void tearDown() throws IOException {
         worker.stopWorker();
-        workerFuture.cancel(true);
-        serverSocket.close();
+        master.stop();
+        executorService.shutdown();
     }
 
     @Test
-    void testWorkerReceivesAndExecutesTask() throws Exception {
-        try (Socket masterSocket = serverSocket.accept();
-             ObjectOutputStream oos = new ObjectOutputStream(masterSocket.getOutputStream())) {
+    void testTaskExecution() throws Exception {
+        // Создаем тестовую задачу
+        RemoteTask task = () -> System.out.println("Task executed!");
 
-            // Создаем тестовую задачу
-            RemoteTask task = new RemoteTask() {
-                @Override
-                public void execute() {
-                    System.out.println("Task executed!");
-                }
-            };
+        // Перехватываем консольный вывод
+        ByteArrayOutputStream outputStreamCaptor = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outputStreamCaptor));
 
-            // Отправляем задачу воркеру
-            oos.writeObject(task);
-            oos.flush();
+        // Отправляем задачу
+        master.submitTask(task);
 
-            // Захват вывода консоли, чтобы проверить, что воркер правильно выполнил задачу
-            ByteArrayOutputStream outputStreamCaptor = new ByteArrayOutputStream();
-            System.setOut(new PrintStream(outputStreamCaptor));
+        // Ждем выполнения задачи
+        Thread.sleep(2000);
 
-            // Ждем, пока воркер выполнит задачу
-            Thread.sleep(1000);
-
-            // Проверяем, что вывод содержит "Task executed!"
-            String consoleOutput = outputStreamCaptor.toString().trim();
-            assertTrue(consoleOutput.contains("Task executed!"));
-        }
+        // Проверяем, что воркер действительно выполнил задачу
+        String consoleOutput = outputStreamCaptor.toString().trim();
+        assertTrue(consoleOutput.contains("Task executed!"));
     }
 }

@@ -20,20 +20,23 @@ public class CloudDataset<T> implements Serializable {
      * Применяет функцию преобразования к каждому элементу
      */
     public <R> CloudDataset<R> map(Function<T, R> func) {
-        return new CloudDataset<>(master, master.distributedMap(data, new RemoteTask<>(func)));
+        return null;
+        //return new CloudDataset<>(master, master.distributedMap(data, new RemoteTask<>(func)));
     }
 
     /**
      * Фильтрует элементы по предикату
      */
     public CloudDataset<T> filter(Predicate<T> predicate) {
-        return new CloudDataset<>(master, master.distributedFilter(data, new RemoteTask<>(predicate)));
+        return null;
+        //return new CloudDataset<>(master, master.distributedFilter(data, new RemoteTask<>(predicate)));
     }
 
     /**
      * Собирает результат выполнения обратно в список
      */
     public List<T> collect() {
-        return master.distributedMap(data, new RemoteTask<>(x -> x));
+        //return master.distributedMap(data, new RemoteTask<>(x -> x));
+        return null;
     }
 }
