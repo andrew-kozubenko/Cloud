@@ -5,14 +5,18 @@ import ru.nsu.cloud.api.RemoteTask;
 import java.io.*;
 import java.net.Socket;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class WorkerHandler implements Runnable {
     private final Socket workerSocket;
     private final BlockingQueue<RemoteTask> taskQueue;
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> taskResults;
 
-    public WorkerHandler(Socket workerSocket, BlockingQueue<RemoteTask> taskQueue) {
+    public WorkerHandler(Socket workerSocket, BlockingQueue<RemoteTask> taskQueue, ConcurrentHashMap<String, CompletableFuture<Object>> taskResults) {
         this.workerSocket = workerSocket;
         this.taskQueue = taskQueue;
+        this.taskResults = taskResults;
     }
 
     @Override
@@ -21,17 +25,19 @@ public class WorkerHandler implements Runnable {
              ObjectInputStream in = new ObjectInputStream(workerSocket.getInputStream())) {
 
             while (!Thread.currentThread().isInterrupted()) {
-                // Получаем новую задачу из очереди
                 RemoteTask task = taskQueue.take();
 
-                // Отправляем задачу воркеру
                 out.writeObject(task);
                 out.flush();
 
-                // Получаем результат выполнения от воркера
                 Object result = in.readObject();
+//
+//                // Завершаем future и передаем результат
+//                CompletableFuture<Object> future = taskResults.remove(task.getId());
+//                if (future != null) {
+//                    future.complete(result);
+//                }
 
-                // Логируем результат (можно отправить его обратно в MasterNode)
                 System.out.println("Результат от воркера: " + result);
             }
         } catch (IOException | ClassNotFoundException | InterruptedException e) {

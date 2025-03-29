@@ -1,41 +1,39 @@
 package ru.nsu.cloud.client;
 
-import ru.nsu.cloud.api.RemoteTask;
-import ru.nsu.cloud.api.SerializableFunction;
 import ru.nsu.cloud.master.Master;
-import ru.nsu.cloud.utils.DependencyCollector;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.io.Serializable;
 import java.util.List;
-import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
-
-public class CloudDataset<T> {
+public class CloudDataset<T> implements Serializable {
     private final Master master;
     private final List<T> data;
-    private final List<SerializableFunction<?, ?>> transformations = new ArrayList<>();
 
     public CloudDataset(Master master, List<T> data) {
         this.master = master;
         this.data = data;
     }
 
-    public <R> CloudDataset<R> map(SerializableFunction<T, R> function) {
-        CloudDataset<R> newDataset = new CloudDataset<>(master, null);
-        newDataset.transformations.addAll(this.transformations);
-        newDataset.transformations.add(function);
-
-        // Собираем зависимости и передаём их на мастер
-        Set<Class<?>> dependencies = new HashSet<>();
-        DependencyCollector.collectDependencies(function, dependencies);
-        master.registerDependencies(dependencies);
-
-        return newDataset;
+    /**
+     * Применяет функцию преобразования к каждому элементу
+     */
+    public <R> CloudDataset<R> map(Function<T, R> func) {
+        return new CloudDataset<>(master, master.distributedMap(data, new RemoteTask<>(func)));
     }
 
+    /**
+     * Фильтрует элементы по предикату
+     */
+    public CloudDataset<T> filter(Predicate<T> predicate) {
+        return new CloudDataset<>(master, master.distributedFilter(data, new RemoteTask<>(predicate)));
+    }
 
+    /**
+     * Собирает результат выполнения обратно в список
+     */
     public List<T> collect() {
-        return master.distributedMap(data, new RemoteTask<>(transformations), transformations);
+        return master.distributedMap(data, new RemoteTask<>(x -> x));
     }
 }
