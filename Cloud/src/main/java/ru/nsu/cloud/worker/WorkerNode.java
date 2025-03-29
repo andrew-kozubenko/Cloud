@@ -2,114 +2,81 @@ package ru.nsu.cloud.worker;
 
 import ru.nsu.cloud.api.RemoteTask;
 import java.io.*;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+
 public class WorkerNode {
     private static final Logger logger = Logger.getLogger(WorkerNode.class.getName());
-    private final int port;
-    private final ExecutorService threadPool = Executors.newFixedThreadPool(4);
+    private final String masterHost;
+    private final int masterPort;
     private volatile boolean running = true;
 
-    public WorkerNode(int port) {
-        this.port = port;
+    public WorkerNode(String masterHost, int masterPort) {
+        this.masterHost = masterHost;
+        this.masterPort = masterPort;
     }
 
     public void start() {
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            logger.info("WorkerNode started on port " + port);
+        while (running) {
+            try (Socket socket = new Socket(masterHost, masterPort);
+                 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
+                 ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
 
-            while (running) {
-                try {
-                    Socket socket = serverSocket.accept();
-                    logger.info("Accepted connection from " + socket.getInetAddress());
-                    threadPool.execute(() -> handleRequest(socket));
-                } catch (SocketException e) {
-                    logger.warning("ServerSocket closed, stopping worker...");
-                    break;
-                } catch (IOException e) {
-                    if (running) {
-                        logger.log(Level.WARNING, "Error accepting connection", e);
+                logger.info("Connected to master at " + masterHost + ":" + masterPort);
+
+                while (running) {
+                    try {
+                        Object received = ois.readObject();
+
+                        if ("SHUTDOWN".equals(received)) {
+                            logger.info("Received SHUTDOWN command. Exiting...");
+                            stopWorker();
+                            break;
+                        }
+
+                        if (received instanceof RemoteTask task) {
+                            logger.info("Executing task...");
+                            task.execute();  // Выполняем задачу
+                        }
+                    } catch (EOFException | SocketException | ClassNotFoundException e) {
+                        logger.warning("Master disconnected. Retrying in 5 seconds...");
+                        try {
+                            Thread.sleep(5000);
+                        } catch (InterruptedException ex) {
+                            Thread.currentThread().interrupt();
+                        }
+                        break;  // Выходим из внутреннего while и пробуем переподключиться
                     }
                 }
-            }
-        } catch (IOException e) {
-            logger.log(Level.SEVERE, "Server encountered an error", e);
-        } finally {
-            shutdownWorker();
-        }
-    }
-
-    private <T, R> void handleRequest(Socket socket) {
-        try (ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
-             ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
-
-            logger.info("Reading task from client...");
-
-            while (running) {
-                Object received;
-                try {
-                    received = ois.readObject();
-                } catch (EOFException | SocketException e) {
-                    logger.warning("Master disconnected. Shutting down worker.");
-                    stopWorker();
-                    break;
-                }
-
-                if ("SHUTDOWN".equals(received)) {
-                    logger.info("Received SHUTDOWN command. Exiting...");
-                    stopWorker();
-                    break;
-                }
-
-                if (received instanceof RemoteTask<?, ?> rawTask) {
-                    @SuppressWarnings("unchecked")
-                    RemoteTask<T, R> task = (RemoteTask<T, R>) rawTask;
-
-                    @SuppressWarnings("unchecked")
-                    T input = (T) ois.readObject();
-
-                    logger.info("Executing task...");
-                    R result = task.apply(input);
-
-                    logger.info("Sending result back to client...");
-                    oos.writeObject(result);
-                    oos.flush();
-                }
-            }
-        } catch (IOException | ClassNotFoundException e) {
-            logger.log(Level.SEVERE, "Error while processing request", e);
-        } finally {
-            try {
-                socket.close();
-                logger.info("Socket closed.");
             } catch (IOException e) {
-                logger.log(Level.WARNING, "Error closing socket", e);
+                logger.log(Level.WARNING, "Failed to connect to master. Retrying in 5 seconds...", e);
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
 
     public void stopWorker() {
         running = false;
-        shutdownWorker();
-    }
-
-    private void shutdownWorker() {
-        logger.info("Shutting down worker node...");
-        threadPool.shutdown();
-    }
-
-    public boolean isRunning() {
-        return running;
+        logger.info("Worker shutting down...");
     }
 
     public static void main(String[] args) {
-        WorkerNode worker = new WorkerNode(5000);
+        if (args.length < 2) {
+            System.out.println("Usage: java WorkerNode <master-host> <master-port>");
+            return;
+        }
+
+        String masterHost = args[0];
+        int masterPort = Integer.parseInt(args[1]);
+
+        WorkerNode worker = new WorkerNode(masterHost, masterPort);
         worker.start();
     }
 }

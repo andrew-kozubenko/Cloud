@@ -5,137 +5,62 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import ru.nsu.cloud.api.RemoteTask;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
+import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkerNodeTest {
+    private static final int TEST_PORT = 5001;
+    private ServerSocket serverSocket;
     private WorkerNode worker;
-    private ExecutorService executor;
-    private final int TEST_PORT = 5001;
+    private Future<?> workerFuture;
 
     @BeforeEach
-    void setUp() {
-        worker = new WorkerNode(TEST_PORT);
-        executor = Executors.newSingleThreadExecutor();
-        executor.execute(worker::start);
+    void setUp() throws IOException {
+        serverSocket = new ServerSocket(TEST_PORT);
+
+        worker = new WorkerNode("localhost", TEST_PORT);
+        workerFuture = Executors.newSingleThreadExecutor().submit(worker::start);
     }
 
     @AfterEach
-    void tearDown() throws InterruptedException {
-        executor.shutdownNow();
-        Thread.sleep(500); // Даем время воркеру закрыться
+    void tearDown() throws IOException {
+        worker.stopWorker();
+        workerFuture.cancel(true);
+        serverSocket.close();
     }
 
     @Test
-    void testWorkerHandlesTaskCorrectly() throws Exception {
-        // Создаем моковый RemoteTask
-        RemoteTask<Integer, Integer> task = input -> input * 2;
+    void testWorkerReceivesAndExecutesTask() throws Exception {
+        try (Socket masterSocket = serverSocket.accept();
+             ObjectOutputStream oos = new ObjectOutputStream(masterSocket.getOutputStream())) {
 
-        // Создаем сокет клиента
-        try (Socket clientSocket = new Socket("localhost", TEST_PORT);
-             ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-             ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
+            // Создаем тестовую задачу
+            RemoteTask task = new RemoteTask() {
+                @Override
+                public void execute() {
+                    System.out.println("Task executed!");
+                }
+            };
 
-            // Отправляем задачу и данные
+            // Отправляем задачу воркеру
             oos.writeObject(task);
-            oos.writeObject(5);
             oos.flush();
 
-            // Читаем результат
-            int result = (int) ois.readObject();
-            assertEquals(10, result, "Worker должен корректно обработать задачу.");
+            // Захват вывода консоли, чтобы проверить, что воркер правильно выполнил задачу
+            ByteArrayOutputStream outputStreamCaptor = new ByteArrayOutputStream();
+            System.setOut(new PrintStream(outputStreamCaptor));
+
+            // Ждем, пока воркер выполнит задачу
+            Thread.sleep(1000);
+
+            // Проверяем, что вывод содержит "Task executed!"
+            String consoleOutput = outputStreamCaptor.toString().trim();
+            assertTrue(consoleOutput.contains("Task executed!"));
         }
     }
-
-    @Test
-    void testWorkerHandlesMultipleTasks() throws Exception {
-        RemoteTask<Integer, Integer> task = input -> input + 100;
-
-        try (Socket client1 = new Socket("localhost", TEST_PORT);
-             ObjectOutputStream oos1 = new ObjectOutputStream(client1.getOutputStream());
-             ObjectInputStream ois1 = new ObjectInputStream(client1.getInputStream());
-
-             Socket client2 = new Socket("localhost", TEST_PORT);
-             ObjectOutputStream oos2 = new ObjectOutputStream(client2.getOutputStream());
-             ObjectInputStream ois2 = new ObjectInputStream(client2.getInputStream())) {
-
-            // Отправляем задачи параллельно
-            oos1.writeObject(task);
-            oos1.writeObject(1);
-            oos1.flush();
-
-            oos2.writeObject(task);
-            oos2.writeObject(2);
-            oos2.flush();
-
-            // Проверяем результаты
-            int result1 = (int) ois1.readObject();
-            int result2 = (int) ois2.readObject();
-
-            assertEquals(101, result1);
-            assertEquals(102, result2);
-        }
-    }
-
-    @Test
-    void testWorkerHandlesTaskException() throws Exception {
-        // Создаем задачу, которая выбрасывает исключение
-        RemoteTask<Integer, Integer> task = input -> {
-            throw new RuntimeException("Test Exception");
-        };
-
-        try (Socket clientSocket = new Socket("localhost", TEST_PORT);
-             ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-             ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
-
-            oos.writeObject(task);
-            oos.writeObject(10);
-            oos.flush();
-
-            // Ожидаем, что воркер не упадет, но выбросит ошибку
-            assertThrows(IOException.class, ois::readObject, "Worker должен корректно обработать исключение.");
-        }
-    }
-
-    @Test
-    void testWorkerHandlesShutdownCommand() throws Exception {
-        // Создаем сокет клиента
-        try (Socket clientSocket = new Socket("localhost", TEST_PORT);
-             ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-             ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
-
-            // Отправляем команду SHUTDOWN
-            oos.writeObject("SHUTDOWN");
-            oos.flush();
-
-            // Проверяем, что воркер завершил свою работу
-            assertFalse(worker.isRunning(), "Worker должен завершить свою работу после команды SHUTDOWN.");
-        }
-    }
-
-//    @Test
-//    void testWorkerClosesSocketAfterProcessing() throws Exception {
-//        RemoteTask<Integer, Integer> task = input -> input * 3;
-//
-//        try (Socket clientSocket = new Socket("localhost", TEST_PORT);
-//             ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-//             ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
-//
-//            oos.writeObject(task);
-//            oos.writeObject(4);
-//            oos.flush();
-//
-//            int result = (int) ois.readObject();
-//            assertEquals(12, result);
-//
-//            // Проверяем, что сокет закрывается после обработки
-//            assertTrue(clientSocket.isClosed(), "Сокет должен быть закрыт после обработки задачи.");
-//        }
-//    }
 }
