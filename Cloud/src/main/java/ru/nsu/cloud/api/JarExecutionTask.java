@@ -8,7 +8,7 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 
-public class JarExecutionTask implements RemoteTask {
+public class JarExecutionTask extends RemoteTask {
     private byte[] jarBytes;      // Массив байт, содержащий JAR файл
     private String className;      // Имя класса для загрузки
     private String methodName;     // Имя метода для вызова

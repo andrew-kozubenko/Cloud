@@ -1,11 +1,20 @@
 package ru.nsu.cloud.api;
 
 import java.io.Serializable;
-import java.util.List;
-import java.util.function.Function;
+import java.util.UUID;
 
-public interface RemoteTask extends Serializable {
-    void execute();
+public abstract class RemoteTask implements Serializable {
+    private final String id;  // Уникальный идентификатор задачи
+
+    public RemoteTask() {
+        this.id = UUID.randomUUID().toString(); // Генерируем уникальный ID
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public abstract void execute();
 }
 
 
