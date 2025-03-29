@@ -5,16 +5,14 @@ import ru.nsu.cloud.api.RemoteTask;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 
 public class Master {
     private final int port;
     private ServerSocket serverSocket;
     private final BlockingQueue<RemoteTask> taskQueue = new LinkedBlockingQueue<>();
     private final ExecutorService workerPool = Executors.newCachedThreadPool();
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> taskResults = new ConcurrentHashMap<>();
 
     public Master(int port) {
         this.port = port;
@@ -23,13 +21,13 @@ public class Master {
     public void start() {
         try {
             serverSocket = new ServerSocket(port);
-            System.out.println("Master запущен на порту: " + port);
+            System.out.println("Master started on port: " + port);
 
             while (!serverSocket.isClosed()) {
                 Socket workerSocket = serverSocket.accept();
-                System.out.println("Новый воркер подключен: " + workerSocket.getInetAddress());
+                System.out.println("New worker connected: " + workerSocket.getInetAddress());
 
-                workerPool.submit(new WorkerHandler(workerSocket, taskQueue));
+                workerPool.submit(new WorkerHandler(workerSocket, taskQueue, taskResults));
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -40,6 +38,17 @@ public class Master {
         serverSocket.close();
         workerPool.shutdown();
     }
+
+    public void submitTask(RemoteTask task) {
+        try {
+            taskQueue.put(task); // Добавляем задачу в очередь
+            System.out.println("Задача добавлена в очередь");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Ошибка при добавлении задачи в очередь", e);
+        }
+    }
+
 }
 
 

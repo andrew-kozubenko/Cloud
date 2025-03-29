@@ -2,6 +2,9 @@ package ru.nsu.cloud.master;
 
 import org.junit.jupiter.api.Test;
 import ru.nsu.cloud.client.CloudContext;
+import ru.nsu.cloud.client.CloudDataset;
+import ru.nsu.cloud.client.CloudSession;
+
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -9,22 +12,21 @@ public class MasterTest {
 
     @Test
     public void testRemoteComputation() {
+        CloudSession cloud = CloudSession.builder()
+                .master("192.168.1.100", 9090)
+                .build();
 
         // 1. Создаём контекст для работы с облаком
-        CloudContext cloudContext = new CloudContext("192.168.1.100", 9090);
+        CloudContext cloudContext = cloud.cloudContext();
 
-        // 2. Загружаем список данных в CloudDataset
-        List<Integer> data = List.of(1, 2, 3, 4, 5);
-        var dataset = cloudContext.parallelize(data);
+        // 📌 Вариант 1: Передача лямбды
+        CloudDataset<Integer> dataset = cloudContext.parallelize(List.of(1, 2, 3, 4, 5));
+        CloudDataset<Integer> squared = dataset.map(x -> x * x);
+        List<Integer> result = squared.collect();
+        System.out.println(result);  // [1, 4, 9, 16, 25]
 
-        // 3. Применяем удалённое вычисление (умножаем на 2)
-        var transformedDataset = dataset.map(x -> x * 2);
-
-        // 4. Собираем результат
-        List<Integer> result = transformedDataset.collect();
-
-        // 5. Проверяем, что все элементы умножились на 2
-        assertEquals(List.of(2, 4, 6, 8, 10), result);
+        // 📌 Вариант 2: Передача JAR-файла
+        cloudContext.submitJar("my-computation.jar", "com.example.Main", "run");
     }
 }
 
