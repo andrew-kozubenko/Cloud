@@ -1,7 +1,7 @@
 package ru.nsu.cloud.api;
 
 public class LambdaTask implements RemoteTask {
-    private SerializableFunction<?, ?> function;
+    private final SerializableFunction<?, ?> function;
 
     public LambdaTask(SerializableFunction<?, ?> function) {
         this.function = function;
