@@ -39,14 +39,17 @@ public class Master {
         workerPool.shutdown();
     }
 
-    public void submitTask(RemoteTask task) {
+    public Future<Object> submitTask(RemoteTask task) {
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        taskResults.put(task.getId(), future);  // Сохраняем future
         try {
-            taskQueue.put(task); // Добавляем задачу в очередь
-            System.out.println("Задача добавлена в очередь");
+            taskQueue.put(task);
+            System.out.println("Задача добавлена в очередь: " + task.getId());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Ошибка при добавлении задачи в очередь", e);
         }
+        return future; // Возвращаем Future, чтобы ожидать результат
     }
 
 }

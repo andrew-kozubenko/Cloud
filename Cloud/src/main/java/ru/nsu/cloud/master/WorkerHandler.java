@@ -31,12 +31,12 @@ public class WorkerHandler implements Runnable {
                 out.flush();
 
                 Object result = in.readObject();
-//
-//                // Завершаем future и передаем результат
-//                CompletableFuture<Object> future = taskResults.remove(task.getId());
-//                if (future != null) {
-//                    future.complete(result);
-//                }
+
+                // Завершаем future и передаем результат
+                CompletableFuture<Object> future = taskResults.remove(task.getId());
+                if (future != null) {
+                    future.complete(result);
+                }
 
                 System.out.println("Результат от воркера: " + result);
             }
