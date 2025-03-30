@@ -2,6 +2,8 @@ package ru.nsu.cloud.worker;
 
 import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
+import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
 import ru.nsu.cloud.master.Master;
 
 import java.io.*;
@@ -47,10 +49,13 @@ class WorkerNodeTest {
 
     @Test
     void testTaskExecutionWithList() throws Exception {
-        // Создаем задачу с лямбдой, которая считает количество элементов в списке
-        LambdaTask<String, String> task = new LambdaTask<>(
-                (List<String> input) -> "Processed " + input.size() + " elements",
-                Arrays.asList("elem1", "elem2", "elem3")  // Входные данные - список строк
+        // Создаем задачу с лямбдой, которая работает с List
+        LambdaTask<String> task = new LambdaTask<>(
+                (Object input) -> {
+                    List<?> list = (List<?>) input;
+                    return "Processed " + list.size() + " elements";
+                },
+                Arrays.asList("elem1", "elem2", "elem3")  // Вводим список
         );
 
         // Перехватываем консольный вывод
@@ -71,9 +76,9 @@ class WorkerNodeTest {
     @Test
     void testTaskExecutionWithoutInput() throws Exception {
         // Создаем задачу с лямбдой, которая не требует входных данных
-        LambdaTask<String, String> task = new LambdaTask<>(
-                (List<String> input) -> "No input provided",
-                null  // Нет входных данных
+        LambdaTask<String> task = new LambdaTask<>(
+                (Object input) -> "No input provided",
+                null  // Вводим null
         );
 
         // Перехватываем консольный вывод
@@ -93,10 +98,13 @@ class WorkerNodeTest {
 
     @Test
     void testTaskExecutionWithMultiplication() throws Exception {
-        // Создаем задачу с лямбдой, которая умножает все элементы списка на 2
-        LambdaTask<Integer, List<Integer>> task = new LambdaTask<>(
-                (List<Integer> input) -> input.stream().map(x -> x * 2).toList(),
-                Arrays.asList(1, 2, 3, 4, 5)  // Входные данные - список чисел
+        // Создаем задачу с лямбдой, которая умножает все элементы списка
+        LambdaTask<Integer> task = new LambdaTask<>(
+                (Object input) -> {
+                    List<Integer> list = (List<Integer>) input;
+                    return list.stream().reduce(1, (a, b) -> a * b); // Умножаем все элементы списка
+                },
+                Arrays.asList(1, 2, 3, 4)  // Вводим список чисел
         );
 
         // Перехватываем консольный вывод
@@ -111,6 +119,6 @@ class WorkerNodeTest {
 
         // Проверяем, что воркер действительно выполнил задачу
         String consoleOutput = outputStreamCaptor.toString().trim();
-        assertTrue(consoleOutput.contains("[2, 4, 6, 8, 10]"));
+        assertTrue(consoleOutput.contains("Lambda executed, result: 24"));  // 1 * 2 * 3 * 4 = 24
     }
 }

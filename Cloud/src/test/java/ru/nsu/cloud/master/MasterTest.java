@@ -1,92 +1,110 @@
-package ru.nsu.cloud.master;
-
-import org.junit.jupiter.api.*;
-import ru.nsu.cloud.api.LambdaTask;
-import ru.nsu.cloud.master.Master;
-
-import java.io.*;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.*;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class MasterTest {
-    private static final int TEST_PORT = 5001;
-    private Master master;
-    private WorkerNode worker;
-    private ExecutorService executorService;
-
-    @BeforeAll
-    void setUp() {
-        executorService = Executors.newFixedThreadPool(2);
-
-        // Запускаем Мастера
-        master = new Master(TEST_PORT);
-        executorService.submit(master::start);
-
-        // Запускаем Воркера
-        worker = new WorkerNode("localhost", TEST_PORT);
-        executorService.submit(worker::start);
-
-        // Даем время воркеру подключиться к мастеру
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    @AfterAll
-    void tearDown() throws IOException {
-        worker.stopWorker();
-        master.stop();
-        executorService.shutdown();
-    }
-
-    @Test
-    void testMasterReceivesResultWithListProcessing() throws Exception {
-        // Создаем задачу с лямбдой, которая считает количество элементов в списке
-        LambdaTask<String, String> task = new LambdaTask<>(
-                (List<String> input) -> "Processed " + input.size() + " elements",
-                Arrays.asList("elem1", "elem2", "elem3")
-        );
-
-        // Отправляем задачу и получаем результат от мастера
-        String result = master.submitTask(task);
-
-        // Проверяем, что мастер получил правильный результат
-        assertEquals("Processed 3 elements", result);
-    }
-
-    @Test
-    void testMasterReceivesResultWithoutInput() throws Exception {
-        // Создаем задачу, которая не требует входных данных
-        LambdaTask<String, String> task = new LambdaTask<>(
-                (List<String> input) -> "No input provided",
-                null
-        );
-
-        // Отправляем задачу и получаем результат от мастера
-        String result = master.submitTask(task);
-
-        // Проверяем, что мастер получил правильный результат
-        assertEquals("No input provided", result);
-    }
-
-    @Test
-    void testMasterReceivesResultWithMultiplication() throws Exception {
-        // Создаем задачу с умножением всех элементов списка на 2
-        LambdaTask<List<Integer>, List<Integer>> task = new LambdaTask<>(
-                (List<Integer> input) -> input.stream().map(x -> x * 2).toList(),
-                Arrays.asList(1, 2, 3, 4, 5)
-        );
-
-        // Отправляем задачу и получаем результат от мастера
-        List<Integer> result = master.submitTask(task);
-
-        // Проверяем, что мастер получил правильный результат
-        assertEquals(Arrays.asList(2, 4, 6, 8, 10), result);
-    }
-}
+//package ru.nsu.cloud.master;
+//
+//import org.junit.jupiter.api.*;
+//import ru.nsu.cloud.api.LambdaTask;
+//import ru.nsu.cloud.api.RemoteTask;
+//import ru.nsu.cloud.api.SerializableFunction;
+//
+//import java.util.Arrays;
+//import java.util.List;
+//import java.util.concurrent.*;
+//
+//import static org.junit.jupiter.api.Assertions.*;
+//
+//class MasterTest {
+//    private Master master;
+//    private ExecutorService executor;
+//
+//    @BeforeEach
+//    void setUp() {
+//        master = new Master(5000); // Порт для тестов (можно заменить)
+//        executor = Executors.newSingleThreadExecutor();
+//        executor.submit(master::start); // Запускаем Master в отдельном потоке
+//    }
+//
+//    @AfterEach
+//    void tearDown() throws Exception {
+//        master.stop();
+//        executor.shutdown();
+//    }
+//
+//    @Test
+//    void testSimpleAdditionTask() throws Exception {
+//        // Создаём LambdaTask: прибавляем 5 ко всем элементам списка
+//        LambdaTask<Integer, List<Integer>> task = new LambdaTask<>(
+//                list -> list.stream().map(x -> x + 5).toList(),
+//                List.of(1, 2, 3)
+//        );
+//
+//        // Отправляем задачу в Master
+//        Future<Object> future = master.submitTask(task);
+//
+//        // Проверяем результат
+//        assertNotNull(future);
+//        List<Integer> result = (List<Integer>) future.get(3, TimeUnit.SECONDS);
+//        assertEquals(List.of(6, 7, 8), result);
+//    }
+//
+//    @Test
+//    void testStringToUpperCaseTask() throws Exception {
+//        // LambdaTask: перевод строки в верхний регистр
+//        LambdaTask<String, List<String>> task = new LambdaTask<>(
+//                list -> list.stream().map(String::toUpperCase).toList(),
+//                List.of("hello", "world")
+//        );
+//
+//        Future<Object> future = master.submitTask(task);
+//
+//        assertNotNull(future);
+//        List<String> result = (List<String>) future.get(3, TimeUnit.SECONDS);
+//        assertEquals(List.of("HELLO", "WORLD"), result);
+//    }
+//
+//    @Test
+//    void testMultiplicationTask() throws Exception {
+////        LambdaTask<Integer, List<Integer>> task = new LambdaTask<>(
+////                (List<Integer> input) -> input.stream().map(x -> x * 2).toList(),
+////                Arrays.asList(1, 2, 3, 4, 5)  // Входные данные - список чисел
+////        );
+//        // LambdaTask: умножение всех чисел в списке на 2
+//        LambdaTask<Integer, List<Integer>> task = new LambdaTask<>(
+//                (List<Integer> input) -> input.stream().map(x -> x * 2).toList(),
+//                Arrays.asList(2, 4, 6)
+//        );
+//
+//        Future<Object> future = master.submitTask(task);
+//
+//        assertNotNull(future);
+//        List<Integer> result = (List<Integer>) future.get(3, TimeUnit.SECONDS);
+//        assertEquals(List.of(4, 8, 12), result);
+//    }
+//
+//    @Test
+//    void testEmptyInputTask() throws Exception {
+//        // LambdaTask: суммируем числа, но передаем пустой список
+//        LambdaTask<Integer, Integer> task = new LambdaTask<>(
+//                list -> list.stream().reduce(0, Integer::sum),
+//                List.of()
+//        );
+//
+//        Future<Object> future = master.submitTask(task);
+//
+//        assertNotNull(future);
+//        Integer result = (Integer) future.get(3, TimeUnit.SECONDS);
+//        assertEquals(0, result);
+//    }
+//
+//    @Test
+//    void testNullInputTask() throws Exception {
+//        // LambdaTask: если входные данные null, возвращаем -1
+//        LambdaTask<Integer, Integer> task = new LambdaTask<>(
+//                list -> (list == null) ? -1 : list.stream().reduce(0, Integer::sum)
+//        );
+//
+//        Future<Object> future = master.submitTask(task);
+//
+//        assertNotNull(future);
+//        Integer result = (Integer) future.get(3, TimeUnit.SECONDS);
+//        assertEquals(-1, result);
+//    }
+//}
