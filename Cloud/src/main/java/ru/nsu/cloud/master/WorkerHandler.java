@@ -4,14 +4,16 @@ import ru.nsu.cloud.api.RemoteTask;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class WorkerHandler implements Runnable {
     private final Socket workerSocket;
     private final BlockingQueue<RemoteTask> taskQueue;
     private final ConcurrentHashMap<String, CompletableFuture<Object>> taskResults;
+    private Integer workerThreads;  // Количество потоков у воркера
+    private ExecutorService executor;
+    private AtomicInteger availableSlots;
 
     public WorkerHandler(Socket workerSocket, BlockingQueue<RemoteTask> taskQueue, ConcurrentHashMap<String, CompletableFuture<Object>> taskResults) {
         this.workerSocket = workerSocket;
@@ -23,25 +25,40 @@ public class WorkerHandler implements Runnable {
     public void run() {
         try (ObjectOutputStream out = new ObjectOutputStream(workerSocket.getOutputStream());
              ObjectInputStream in = new ObjectInputStream(workerSocket.getInputStream())) {
+            this.workerThreads = in.readInt();
+            this.executor = Executors.newFixedThreadPool(workerThreads);
+            this.availableSlots = new AtomicInteger(workerThreads);
 
             while (!Thread.currentThread().isInterrupted()) {
-                RemoteTask task = taskQueue.take();
+                while (availableSlots.get() > 0) {
+                    RemoteTask task = taskQueue.take();
 
-                out.writeObject(task);
-                out.flush();
+                    out.writeObject(task);
+                    out.flush();
+                    availableSlots.decrementAndGet();
 
-                Object result = in.readObject();
+                    executor.submit(() -> {
+                        try {
+                            Object result = in.readObject(); // Получаем результат
 
-                // Завершаем future и передаем результат
-                CompletableFuture<Object> future = taskResults.remove(task.getId());
-                if (future != null) {
-                    future.complete(result);
+                            // Завершаем future и передаем результат
+                            CompletableFuture<Object> future = taskResults.remove(task.getId());
+                            if (future != null) {
+                                future.complete(result);
+                            }
+
+                            System.out.println("Результат от воркера: " + result);
+
+                        } catch (IOException | ClassNotFoundException e) {
+                            System.err.println("Ошибка в WorkerHandler: " + e.getMessage());
+                        } finally {
+                            availableSlots.incrementAndGet(); // ↑↑↑ Освобождаем поток!
+                        }
+                    });
                 }
-
-                System.out.println("Результат от воркера: " + result);
             }
-        } catch (IOException | ClassNotFoundException | InterruptedException e) {
-            System.err.println("Ошибка в WorkerHandler: " + e.getMessage());
+        } catch (IOException | InterruptedException e) {
+            System.err.println("WorkerHandler error: " + e.getMessage());
         }
     }
 }
