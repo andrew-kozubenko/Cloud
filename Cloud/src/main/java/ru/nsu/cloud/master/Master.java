@@ -1,10 +1,14 @@
 package ru.nsu.cloud.master;
 
+import ru.nsu.cloud.api.LambdaTask;
 import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.*;
 
 public class Master {
@@ -52,6 +56,31 @@ public class Master {
         return future; // Возвращаем Future, чтобы ожидать результат
     }
 
+    public <T, R> Future<List<R>> remoteMap(SerializableFunction<T, R> function, List<T> data) {
+        CompletableFuture<List<R>> future = new CompletableFuture<>();
+        List<Future<List<R>>> taskFutures = new ArrayList<>();
+
+        // Разбиваем на задачи
+        for (T item : data) {
+//            LambdaTask<T, R> task = new LambdaTask<>(function, item);
+//            taskFutures.add(submitTask(task));
+        }
+
+        // Собираем результаты
+        Executors.newCachedThreadPool().submit(() -> {
+            try {
+                List<R> results = new ArrayList<>();
+                for (Future<List<R>> taskFuture : taskFutures) {
+                    results.addAll(taskFuture.get());
+                }
+                future.complete(results);
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+
+        return future;
+    }
 }
 
 

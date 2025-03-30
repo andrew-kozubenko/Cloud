@@ -1,9 +1,11 @@
 package ru.nsu.cloud.client;
 
+import ru.nsu.cloud.api.SerializableFunction;
 import ru.nsu.cloud.master.Master;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -19,10 +21,16 @@ public class CloudDataset<T> implements Serializable {
     /**
      * Применяет функцию преобразования к каждому элементу
      */
-    public <R> CloudDataset<R> map(Function<T, R> func) {
-        return null;
-        //return new CloudDataset<>(master, master.distributedMap(data, new RemoteTask<>(func)));
+    public <R> CloudDataset<R> map(SerializableFunction<T, R> func) {
+        try {
+            // Дожидаемся результата
+            List<R> result = master.remoteMap(func, data).get();
+            return new CloudDataset<>(master, result);
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Ошибка при выполнении remoteMap", e);
+        }
     }
+
 
     /**
      * Фильтрует элементы по предикату
