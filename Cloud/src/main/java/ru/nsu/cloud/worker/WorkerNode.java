@@ -7,7 +7,6 @@ import java.net.SocketException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
 public class WorkerNode {
     private static final Logger logger = Logger.getLogger(WorkerNode.class.getName());
     private final String masterHost;
@@ -39,7 +38,12 @@ public class WorkerNode {
 
                         if (received instanceof RemoteTask task) {
                             logger.info("Executing task...");
-                            task.execute();  // Выполняем задачу
+                            Object result = task.execute();  // Выполняем задачу и получаем результат
+
+                            // Отправляем результат выполнения задачи обратно мастеру
+                            oos.writeObject(result);
+                            oos.flush();
+                            logger.info("Task executed, result sent back to master.");
                         }
                     } catch (EOFException | SocketException | ClassNotFoundException e) {
                         logger.warning("Master disconnected. Retrying in 5 seconds...");

@@ -3,7 +3,7 @@ package ru.nsu.cloud.api;
 import java.io.Serializable;
 import java.util.UUID;
 
-public abstract class RemoteTask implements Serializable {
+public abstract class RemoteTask<T> implements Serializable {
     private final String id;  // Уникальный идентификатор задачи
 
     public RemoteTask() {
@@ -14,7 +14,7 @@ public abstract class RemoteTask implements Serializable {
         return id;
     }
 
-    public abstract void execute();
+    public abstract T execute();
 }
 
 
