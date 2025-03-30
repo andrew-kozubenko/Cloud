@@ -2,10 +2,7 @@ package ru.nsu.cloud.master;
 
 import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
-import ru.nsu.cloud.api.RemoteTask;
-import ru.nsu.cloud.api.SerializableFunction;
 import ru.nsu.cloud.master.Master;
-import ru.nsu.cloud.worker.WorkerNode;
 
 import java.io.*;
 import java.util.Arrays;
@@ -49,50 +46,47 @@ class MasterTest {
     }
 
     @Test
-    void testTaskExecutionWithList() throws Exception {
-        // Создаем задачу с лямбдой, которая работает с List
-        LambdaTask<String> task = new LambdaTask<>(
-                (Object input) -> {
-                    List<?> list = (List<?>) input;
-                    return "Processed " + list.size() + " elements";
-                },
-                Arrays.asList("elem1", "elem2", "elem3")  // Вводим список
+    void testMasterReceivesResultWithListProcessing() throws Exception {
+        // Создаем задачу с лямбдой, которая считает количество элементов в списке
+        LambdaTask<String, String> task = new LambdaTask<>(
+                (List<String> input) -> "Processed " + input.size() + " elements",
+                Arrays.asList("elem1", "elem2", "elem3")
         );
 
-        // Перехватываем консольный вывод
-        ByteArrayOutputStream outputStreamCaptor = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(outputStreamCaptor));
+        // Отправляем задачу и получаем результат от мастера
+        String result = master.submitTask(task);
 
-        // Отправляем задачу на выполнение мастеру
-        master.submitTask(task);
-
-        // Ждем выполнения задачи
-        Thread.sleep(2000);
-
-        // Проверяем, что воркер действительно выполнил задачу
-        String consoleOutput = outputStreamCaptor.toString().trim();
-        assertTrue(consoleOutput.contains("Processed 3 elements"));
+        // Проверяем, что мастер получил правильный результат
+        assertEquals("Processed 3 elements", result);
     }
 
     @Test
-    void testMasterReceivesResult() throws Exception {
-        // Создаем задачу с лямбдой, которая работает с List
-        LambdaTask<String> task = new LambdaTask<>(
-                (Object input) -> {
-                    List<?> list = (List<?>) input;
-                    return "Processed " + list.size() + " elements";
-                },
-                Arrays.asList("elem1", "elem2", "elem3")  // Вводим список
+    void testMasterReceivesResultWithoutInput() throws Exception {
+        // Создаем задачу, которая не требует входных данных
+        LambdaTask<String, String> task = new LambdaTask<>(
+                (List<String> input) -> "No input provided",
+                null
         );
 
-        // Отправляем задачу на выполнение мастеру
-        master.submitTask(task);
+        // Отправляем задачу и получаем результат от мастера
+        String result = master.submitTask(task);
 
-        // Ждем выполнения задачи и получения результата
-        Thread.sleep(2000);
+        // Проверяем, что мастер получил правильный результат
+        assertEquals("No input provided", result);
+    }
 
-        // Проверяем, что мастер получил корректный результат
-        String expectedResult = "Processed 3 elements";
-        assertEquals(expectedResult, task.execute());
+    @Test
+    void testMasterReceivesResultWithMultiplication() throws Exception {
+        // Создаем задачу с умножением всех элементов списка на 2
+        LambdaTask<List<Integer>, List<Integer>> task = new LambdaTask<>(
+                (List<Integer> input) -> input.stream().map(x -> x * 2).toList(),
+                Arrays.asList(1, 2, 3, 4, 5)
+        );
+
+        // Отправляем задачу и получаем результат от мастера
+        List<Integer> result = master.submitTask(task);
+
+        // Проверяем, что мастер получил правильный результат
+        assertEquals(Arrays.asList(2, 4, 6, 8, 10), result);
     }
 }
