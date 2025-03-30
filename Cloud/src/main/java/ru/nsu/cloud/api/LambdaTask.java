@@ -2,18 +2,18 @@ package ru.nsu.cloud.api;
 
 import java.util.List;
 
-public class LambdaTask<R> extends RemoteTask<R> {
-    private final SerializableFunction<Object, R> function; // Лямбда, которая принимает Object (можно передать null или List)
-    private final Object input; // Входные данные для лямбды (может быть null или List)
+public class LambdaTask<T, R> extends RemoteTask<R> {
+    private final SerializableFunction<List<T>, R> function; // Лямбда-функция принимает список T и возвращает R
+    private final List<T> input; // Входные данные (список элементов типа T)
 
     // Конструктор с входными данными
-    public LambdaTask(SerializableFunction<Object, R> function, Object input) {
+    public LambdaTask(SerializableFunction<List<T>, R> function, List<T> input) {
         this.function = function;
         this.input = input;
     }
 
     // Конструктор без входных данных (если лямбда не требует их)
-    public LambdaTask(SerializableFunction<Object, R> function) {
+    public LambdaTask(SerializableFunction<List<T>, R> function) {
         this(function, null);  // В таком случае передаем null
     }
 
