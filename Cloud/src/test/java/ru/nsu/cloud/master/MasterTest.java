@@ -2,6 +2,11 @@ package ru.nsu.cloud.master;
 
 import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
+import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
+import ru.nsu.cloud.client.CloudContext;
+import ru.nsu.cloud.client.CloudDataset;
+import ru.nsu.cloud.client.CloudSession;
 import ru.nsu.cloud.master.Master;
 
 import java.io.*;
@@ -88,5 +93,24 @@ class MasterTest {
 
         // Проверяем, что мастер получил правильный результат
         assertEquals(Arrays.asList(2, 4, 6, 8, 10), result);
+    }
+
+    @Test
+    public void testRemoteComputation() {
+        CloudSession cloud = CloudSession.builder()
+                .master("192.168.1.100", 9090)
+                .build();
+
+        // 1. Создаём контекст для работы с облаком
+        CloudContext cloudContext = cloud.cloudContext();
+
+        // 📌 Вариант 1: Передача лямбды
+        CloudDataset<Integer> dataset = cloudContext.parallelize(List.of(1, 2, 3, 4, 5));
+        CloudDataset<Integer> squared = dataset.map(x -> x * x);
+        List<Integer> result = squared.collect();
+        System.out.println(result);  // [1, 4, 9, 16, 25]
+
+        // 📌 Вариант 2: Передача JAR-файла
+        cloudContext.submitJar("my-computation.jar", "com.example.Main", "run");
     }
 }
