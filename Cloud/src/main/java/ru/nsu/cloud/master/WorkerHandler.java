@@ -8,6 +8,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WorkerHandler implements Runnable {
+    private final Master master;
     private final Socket workerSocket;
     private final BlockingQueue<RemoteTask> taskQueue;
     private final ConcurrentHashMap<String, CompletableFuture<Object>> taskResults;
@@ -15,7 +16,11 @@ public class WorkerHandler implements Runnable {
     private ExecutorService executor;
     private AtomicInteger availableSlots;
 
-    public WorkerHandler(Socket workerSocket, BlockingQueue<RemoteTask> taskQueue, ConcurrentHashMap<String, CompletableFuture<Object>> taskResults) {
+    public WorkerHandler(Master master,
+                         Socket workerSocket,
+                         BlockingQueue<RemoteTask> taskQueue,
+                         ConcurrentHashMap<String, CompletableFuture<Object>> taskResults) {
+        this.master = master;
         this.workerSocket = workerSocket;
         this.taskQueue = taskQueue;
         this.taskResults = taskResults;
@@ -28,6 +33,7 @@ public class WorkerHandler implements Runnable {
             this.workerThreads = in.readInt();
             this.executor = Executors.newFixedThreadPool(workerThreads);
             this.availableSlots = new AtomicInteger(workerThreads);
+            this.master.addWorkerCores(workerThreads);
 
             while (!Thread.currentThread().isInterrupted()) {
                 while (availableSlots.get() > 0) {
