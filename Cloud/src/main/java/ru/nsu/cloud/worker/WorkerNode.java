@@ -72,6 +72,7 @@ public class WorkerNode {
                 }
             }
         }
+        logger.info("Worker vse");
     }
 
     private <T> void executeTask(RemoteTask<T> task, ObjectOutputStream oos) {

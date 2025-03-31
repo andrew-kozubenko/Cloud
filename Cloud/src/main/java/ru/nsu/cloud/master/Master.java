@@ -37,22 +37,37 @@ public class Master {
             serverSocket = new ServerSocket(port);
             logger.info("Master started on port: " + port);
 
-            while (!serverSocket.isClosed()) {
-                Socket workerSocket = serverSocket.accept();
-                logger.info("New worker connected from " + workerSocket.getInetAddress());
+            while (!serverSocket.isClosed() && !Thread.interrupted()) {
+                try {
+                    Socket workerSocket = serverSocket.accept();
+                    if (serverSocket.isClosed()) break;
 
-                workerPool.submit(new WorkerHandler(this, workerSocket, taskQueue, taskResults));
+                    logger.info("New worker connected from " + workerSocket.getInetAddress());
+
+                    workerPool.submit(new WorkerHandler(this, workerSocket, taskQueue, taskResults));
+                } catch (IOException e) {
+                    if (serverSocket.isClosed() || Thread.interrupted()) {
+                        logger.info("Master socket closed, stopping accept loop.");
+                        break;
+                    }
+                    logger.severe("Error in Master while accepting connections: " + e.getMessage());
+                }
             }
         } catch (IOException e) {
             logger.severe("Error in Master: " + e.getMessage());
         }
+        logger.info("Master start() method exiting.");
     }
 
+
     public void stop() throws IOException {
-        logger.info("Stopping Master...");
-        serverSocket.close();
-        workerPool.shutdown();
+        if (serverSocket != null && !serverSocket.isClosed()) {
+            logger.info("Stopping Master...");
+            serverSocket.close();
+        }
+        workerPool.shutdownNow();
     }
+
 
     public Future<Object> submitTask(RemoteTask task) {
         CompletableFuture<Object> future = new CompletableFuture<>();
@@ -73,7 +88,8 @@ public class Master {
         List<Future<Object>> taskFutures = new ArrayList<>();
         List<List<T>> batches = new ArrayList<>();
 
-        int batchSize = (int) Math.ceil((double) data.size() / workerCoresCount.get()); // Размер батча
+        int workers = Math.max(workerCoresCount.get(), 1); // Защита от 0
+        int batchSize = Math.max(1, (int) Math.ceil((double) data.size() / workers));
         logger.info("Splitting data into batches. Batch size: " + batchSize);
 
         // Разбиваем данные на батчи и сохраняем их порядок
@@ -114,4 +130,10 @@ public class Master {
 
         return future;
     }
+
+    public static void main(String[] args) {
+        Master master = new Master(9090);
+        master.start();
+    }
+
 }
