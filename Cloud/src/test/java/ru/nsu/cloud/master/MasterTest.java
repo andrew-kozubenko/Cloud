@@ -2,7 +2,6 @@ package ru.nsu.cloud.master;
 
 import ru.nsu.cloud.api.LambdaTask;
 import ru.nsu.cloud.api.SerializableFunction;
-import ru.nsu.cloud.master.Master;
 import ru.nsu.cloud.worker.WorkerNode;
 import ru.nsu.cloud.api.RemoteTask;
 
@@ -18,11 +17,20 @@ public class MasterTest {
     public static void main(String[] args) throws ExecutionException, InterruptedException, IOException {
         // Создаем мастер-сервер
         Master master = new Master(9090);
-        master.start(); // Запуск мастера в отдельном потоке
+        // Запускаем мастер-сервер в отдельном потоке
+        new Thread(() -> {
+            master.start();
+        }).start();
+
+        // Даем время на запуск мастера
+        Thread.sleep(2000);  // Подождем 2 секунды, чтобы убедиться, что мастер начал слушать порт
 
         // Запускаем воркера
         WorkerNode worker = new WorkerNode("localhost", 9090);
         new Thread(() -> worker.start()).start();
+
+        // Даем немного времени на подключение воркера
+        Thread.sleep(2000);  // Подождем еще немного, чтобы воркер подключился к мастеру
 
         // Запускаем тест с умножением
         testLambdaTaskWithMultiplication(master);
