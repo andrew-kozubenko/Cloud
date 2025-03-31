@@ -14,21 +14,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ClientTest {
-//    private WorkerNode worker;
-//    private ExecutorService workerExecutor;
-//
-//    @BeforeEach
-//    void setUp() throws Exception {
-//        worker = new WorkerNode("localhost", 9090);
-//        workerExecutor = Executors.newSingleThreadExecutor();
-//        workerExecutor.submit(worker::start);
-//    }
-//
-//    @AfterEach
-//    void tearDown() throws IOException {
-//        worker.stopWorker();
-//        workerExecutor.shutdown();
-//    }
+    private WorkerNode worker;
+    private ExecutorService workerExecutor;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        worker = new WorkerNode("localhost", 9090);
+        workerExecutor = Executors.newSingleThreadExecutor();
+        workerExecutor.submit(worker::start);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        worker.stopWorker();
+        workerExecutor.shutdown();
+    }
 
     @Test
     public void testRemoteComputation() {
