@@ -88,7 +88,8 @@ public class Master {
         List<Future<Object>> taskFutures = new ArrayList<>();
         List<List<T>> batches = new ArrayList<>();
 
-        int batchSize = (int) Math.ceil((double) data.size() / workerCoresCount.get()); // Размер батча
+        int workers = Math.max(workerCoresCount.get(), 1); // Защита от 0
+        int batchSize = Math.max(1, (int) Math.ceil((double) data.size() / workers));
         logger.info("Splitting data into batches. Batch size: " + batchSize);
 
         // Разбиваем данные на батчи и сохраняем их порядок
@@ -129,4 +130,10 @@ public class Master {
 
         return future;
     }
+
+    public static void main(String[] args) {
+        Master master = new Master(9090);
+        master.start();
+    }
+
 }
