@@ -1,68 +1,59 @@
 package ru.nsu.cloud.master;
 
+import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
 import ru.nsu.cloud.api.SerializableFunction;
 import ru.nsu.cloud.worker.WorkerNode;
-import ru.nsu.cloud.api.RemoteTask;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.concurrent.*;
 
-public class MasterTest {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public static void main(String[] args) throws ExecutionException, InterruptedException, IOException {
-        // Создаем мастер-сервер
-        Master master = new Master(9090);
-        // Запускаем мастер-сервер в отдельном потоке
-        new Thread(() -> {
-            master.start();
-        }).start();
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class MasterTest {
+    private Master master;
+    private WorkerNode worker;
+    private ExecutorService workerExecutor;
 
-        // Даем время на запуск мастера
-        Thread.sleep(2000);  // Подождем 2 секунды, чтобы убедиться, что мастер начал слушать порт
+    @BeforeEach
+    void setUp() throws Exception {
+        master = new Master(9090);
+        new Thread(master::start).start();
 
-        // Запускаем воркера
-        WorkerNode worker = new WorkerNode("localhost", 9090);
-        new Thread(() -> worker.start()).start();
+        // Ожидаем, пока мастер начнет слушать порт
+        Thread.sleep(1000);
 
-        // Даем немного времени на подключение воркера
-        Thread.sleep(2000);  // Подождем еще немного, чтобы воркер подключился к мастеру
+        worker = new WorkerNode("localhost", 9090);
+        workerExecutor = Executors.newSingleThreadExecutor();
+        workerExecutor.submit(worker::start);
 
-        // Запускаем тест с умножением
-        testLambdaTaskWithMultiplication(master);
-
-        // Даем время для выполнения задач
-        Thread.sleep(5000);
-
-        // Завершаем работу
-        master.stop();
-        worker.stopWorker();
+        // Ожидаем подключения воркера
+        Thread.sleep(1000);
     }
 
-    public static void testLambdaTaskWithMultiplication(Master master) throws ExecutionException, InterruptedException {
-        // Лямбда для умножения всех чисел на 2
+    @AfterEach
+    void tearDown() throws IOException {
+        worker.stopWorker();
+        master.stop();
+        workerExecutor.shutdown();
+    }
+
+    @Test
+    void testLambdaTaskWithMultiplication() throws Exception {
+        // Лямбда-функция: умножаем все числа на 2 и суммируем
         SerializableFunction<Object, Integer> multiplicationFunction = (input) -> {
             List<Integer> inputList = (List<Integer>) input;
-            return inputList.stream().mapToInt(i -> i * 2).sum();  // Умножаем все числа на 2 и суммируем
+            return inputList.stream().mapToInt(i -> i * 2).sum();
         };
 
-        // Входные данные
-        List<Integer> inputData = IntStream.range(1, 6).boxed().collect(Collectors.toList());  // [1, 2, 3, 4, 5]
-
-        // Создаем задачу
+        List<Integer> inputData = List.of(1, 2, 3, 4, 5);
         LambdaTask<Integer> task = new LambdaTask<>(multiplicationFunction, inputData);
 
-        // Отправляем задачу мастеру
         Future<Object> future = master.submitTask(task);
+        Integer result = (Integer) future.get();
 
-        // Получаем результат
-        Integer result = (Integer) future.get();  // Ожидаем результата умножения
-
-        // Выводим результат
-        System.out.println("Result of multiplication task: " + result);  // Ожидаем: 2 + 4 + 6 + 8 + 10 = 30
+        assertEquals(30, result, "Multiplication task should return 30");
     }
 }

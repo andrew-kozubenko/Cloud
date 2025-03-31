@@ -33,6 +33,7 @@ public class WorkerHandler implements Runnable {
     public void run() {
         try (ObjectOutputStream out = new ObjectOutputStream(workerSocket.getOutputStream());
              ObjectInputStream in = new ObjectInputStream(workerSocket.getInputStream())) {
+
             this.workerThreads = in.readInt();
             this.executor = Executors.newFixedThreadPool(workerThreads);
             this.availableSlots = new AtomicInteger(workerThreads);
@@ -40,48 +41,72 @@ public class WorkerHandler implements Runnable {
 
             logger.info("Connected to worker with " + workerThreads + " threads.");
 
-            while (!Thread.currentThread().isInterrupted()) {
-                while (availableSlots.get() > 0) {
-                    RemoteTask task = taskQueue.take();
-                    logger.info("Sending task " + task.getId() + " to worker.");
+            while (!Thread.currentThread().isInterrupted() && !workerSocket.isClosed()) {
+                try {
+                    while (availableSlots.get() > 0) {
+                        RemoteTask task = taskQueue.poll(500, TimeUnit.MILLISECONDS); // Ждём задачу с таймаутом
+                        if (task == null) continue; // Если задачи нет, проверяем состояние
 
-                    out.writeObject(task);
-                    out.flush();
-                    availableSlots.decrementAndGet();
+                        logger.info("Sending task " + task.getId() + " to worker.");
+                        out.writeObject(task);
+                        out.flush();
+                        availableSlots.decrementAndGet();
 
-                    executor.submit(() -> {
-                        try {
-                            Integer taskId;
-                            Object result;
+                        executor.submit(() -> {
+                            try {
+                                Object taskId;
+                                Object result;
 
-                            // Гарантируем атомарное считывание данных
-                            synchronized (in) {
-                                taskId = in.readInt();
-                                result = in.readObject(); // Получаем результат
+                                synchronized (in) {
+                                    taskId = in.readObject();
+                                    result = in.readObject();
+                                }
+                                logger.info("Received result for task " + taskId + ": " + result);
+
+                                CompletableFuture<Object> future = taskResults.remove(taskId);
+                                if (future != null) {
+                                    future.complete(result);
+                                }
+
+                            } catch (IOException | ClassNotFoundException e) {
+                                logger.severe("Error receiving result: " + e.getMessage());
+                                Thread.currentThread().interrupt(); // Останавливаем поток, если воркер отключился
+                            } finally {
+                                availableSlots.incrementAndGet();
+                                logger.info("Worker slot freed. Available slots: " + availableSlots.get());
                             }
-
-                            logger.info("Received result for task " + taskId + ": " + result);
-
-                            // Завершаем future и передаем результат
-                            CompletableFuture<Object> future = taskResults.remove(taskId);
-                            if (future != null) {
-                                future.complete(result);
-                            }
-
-                            System.out.println("Result from the worker: " + result);
-
-                        } catch (IOException | ClassNotFoundException e) {
-                            logger.severe("Error in WorkerHandler while receiving result: " + e.getMessage());
-                        } finally {
-                            availableSlots.incrementAndGet(); // ↑↑↑ Освобождаем поток!
-                            logger.info("Worker slot freed. Available slots: " + availableSlots.get());
-                        }
-                    });
+                        });
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break; // Прерываем цикл при завершении
                 }
             }
-        } catch (IOException | InterruptedException e) {
-            logger.severe("WorkerHandler error: " + e.getMessage());
-            Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            logger.severe("WorkerHandler IO error: " + e.getMessage());
+        } finally {
+            shutdown();
         }
     }
+
+    private void shutdown() {
+        logger.info("Shutting down WorkerHandler...");
+        try {
+            workerSocket.close();
+        } catch (IOException e) {
+            logger.warning("Error closing socket: " + e.getMessage());
+        }
+        if (executor != null) {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(3, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+            }
+        }
+        logger.info("WorkerHandler shutdown complete.");
+    }
+
 }
