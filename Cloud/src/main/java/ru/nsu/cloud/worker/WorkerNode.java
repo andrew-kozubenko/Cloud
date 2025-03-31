@@ -4,6 +4,8 @@ import ru.nsu.cloud.api.RemoteTask;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -12,19 +14,28 @@ public class WorkerNode {
     private final String masterHost;
     private final int masterPort;
     private volatile boolean running = true;
+    private final int coreCount;
+    private final ExecutorService executorService;
 
     public WorkerNode(String masterHost, int masterPort) {
         this.masterHost = masterHost;
         this.masterPort = masterPort;
+        this.coreCount = Runtime.getRuntime().availableProcessors(); // Получаем количество ядер
+        this.executorService = Executors.newFixedThreadPool(coreCount); // Создаем пул потоков
     }
 
     public void start() {
         while (running) {
             try (Socket socket = new Socket(masterHost, masterPort);
-                 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
-                 ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream())) {
+                 ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+                 ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
 
                 logger.info("Connected to master at " + masterHost + ":" + masterPort);
+
+                // Отправляем количество ядер мастеру
+                oos.writeInt(coreCount);
+                oos.flush();
+                logger.info("Sent CPU core count: " + coreCount);
 
                 while (running) {
                     try {
@@ -36,14 +47,11 @@ public class WorkerNode {
                             break;
                         }
 
-                        if (received instanceof RemoteTask task) {
-                            logger.info("Executing task...");
-                            Object result = task.execute();  // Выполняем задачу и получаем результат
+                        if (received instanceof RemoteTask<?> task) {
+                            logger.info("Received task: " + task.getId());
 
-                            // Отправляем результат выполнения задачи обратно мастеру
-                            oos.writeObject(result);
-                            oos.flush();
-                            logger.info("Task executed, result sent back to master.");
+                            // Запускаем выполнение задачи в отдельном потоке
+                            executorService.submit(() -> executeTask(task, oos));
                         }
                     } catch (EOFException | SocketException | ClassNotFoundException e) {
                         logger.warning("Master disconnected. Retrying in 5 seconds...");
@@ -52,7 +60,7 @@ public class WorkerNode {
                         } catch (InterruptedException ex) {
                             Thread.currentThread().interrupt();
                         }
-                        break;  // Выходим из внутреннего while и пробуем переподключиться
+                        break; // Выходим из внутреннего while и пробуем переподключиться
                     }
                 }
             } catch (IOException e) {
@@ -66,8 +74,26 @@ public class WorkerNode {
         }
     }
 
+    private <T> void executeTask(RemoteTask<T> task, ObjectOutputStream oos) {
+        try {
+            T result = task.execute(); // Выполняем задачу
+            logger.info("Task " + task.getId() + " executed. Sending result...");
+
+            synchronized (oos) { // Синхронизация отправки данных по сокету
+                oos.writeObject(task.getId()); // Отправляем ID задачи
+                oos.writeObject(result); // Отправляем результат
+                oos.flush();
+            }
+
+            logger.info("Result for task " + task.getId() + " sent.");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error executing task " + task.getId(), e);
+        }
+    }
+
     public void stopWorker() {
         running = false;
+        executorService.shutdown();
         logger.info("Worker shutting down...");
     }
 
@@ -84,3 +110,4 @@ public class WorkerNode {
         worker.start();
     }
 }
+
