@@ -39,7 +39,7 @@ public class Master {
 
             while (!serverSocket.isClosed()) {
                 Socket workerSocket = serverSocket.accept();
-                logger.info("New worker connected from " + workerSocket.getInetAddress())
+                logger.info("New worker connected from " + workerSocket.getInetAddress());
 
                 workerPool.submit(new WorkerHandler(this, workerSocket, taskQueue, taskResults));
             }
