@@ -45,10 +45,11 @@ public class WorkerHandler implements Runnable {
 
                     executor.submit(() -> {
                         try {
+                            Integer taskId = in.readInt();
                             Object result = in.readObject(); // Получаем результат
 
                             // Завершаем future и передаем результат
-                            CompletableFuture<Object> future = taskResults.remove(task.getId());
+                            CompletableFuture<Object> future = taskResults.remove(taskId);
                             if (future != null) {
                                 future.complete(result);
                             }
