@@ -51,12 +51,12 @@ public class WorkerHandler implements Runnable {
 
                     executor.submit(() -> {
                         try {
-                            Integer taskId;
+                            Object taskId;
                             Object result;
 
                             // Гарантируем атомарное считывание данных
                             synchronized (in) {
-                                taskId = in.readInt();
+                                taskId = in.readObject();
                                 result = in.readObject(); // Получаем результат
                             }
 
