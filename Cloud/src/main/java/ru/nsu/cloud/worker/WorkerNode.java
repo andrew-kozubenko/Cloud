@@ -99,15 +99,16 @@ public class WorkerNode {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.out.println("Usage: java WorkerNode <master-host> <master-port>");
-            return;
-        }
+//        if (args.length < 2) {
+//            System.out.println("Usage: java WorkerNode <master-host> <master-port>");
+//            return;
+//        }
+//
+//        String masterHost = args[0];
+//        int masterPort = Integer.parseInt(args[1]);
 
-        String masterHost = args[0];
-        int masterPort = Integer.parseInt(args[1]);
-
-        WorkerNode worker = new WorkerNode(masterHost, masterPort);
+        //WorkerNode worker = new WorkerNode(masterHost, masterPort);
+        WorkerNode worker = new WorkerNode("192.168.206.203", 9090);
         worker.start();
     }
 }
