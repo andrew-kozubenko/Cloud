@@ -9,8 +9,8 @@ import java.net.URLClassLoader;
 
 public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвращаемого значения Object
     private byte[] jarBytes;      // Массив байт, содержащий JAR файл
-    private String className;      // Имя класса для загрузки
-    private String methodName;     // Имя метода для вызова
+    private String className;      // имя класса для загрузки
+    private String methodName;     // имя метода для вызова
 
     // Конструктор, который принимает байтовый массив (данные JAR) и информацию о классе и методе
     public JarExecutionTask(String jarPath, String className, String methodName) {
