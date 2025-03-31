@@ -23,7 +23,7 @@ public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвр
         try {
             return JarUtils.jarFileToBytes(jarPath);
         } catch (IOException e) {
-            throw new RuntimeException("Ошибка при конвертации JAR в байты: " + e.getMessage(), e);
+            throw new RuntimeException("Error when converting JAR to bytes: " + e.getMessage(), e);
         }
     }
 
@@ -46,14 +46,14 @@ public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвр
 
                 // Вызываем метод и получаем результат
                 Object result = method.invoke(null);  // Метод должен быть static
-                System.out.println("Метод выполнен успешно, результат: " + result);
+                System.out.println("The method was completed successfully, the result is: " + result);
 
                 // Возвращаем результат выполнения метода
                 return result;
 
             } catch (Exception e) {
                 e.printStackTrace();
-                throw new RuntimeException("Ошибка при вызове метода из JAR файла: " + e.getMessage(), e);
+                throw new RuntimeException("Error when calling a method from a JAR file: " + e.getMessage(), e);
             } finally {
                 // Удаляем временный файл после выполнения
                 tempJarFile.delete();
@@ -61,7 +61,7 @@ public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвр
 
         } catch (IOException e) {
             e.printStackTrace();
-            throw new RuntimeException("Ошибка при сохранении JAR файла: " + e.getMessage(), e);
+            throw new RuntimeException("Error saving JAR file: " + e.getMessage(), e);
         }
     }
 }
