@@ -44,7 +44,6 @@ public class CloudDataset<T> implements Serializable {
      * Собирает результат выполнения обратно в список
      */
     public List<T> collect() {
-        //return master.distributedMap(data, new RemoteTask<>(x -> x));
-        return null;
+        return data;
     }
 }
