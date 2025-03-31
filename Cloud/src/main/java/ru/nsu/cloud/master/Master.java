@@ -10,6 +10,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Master {
     private final int port;
@@ -17,6 +18,11 @@ public class Master {
     private final BlockingQueue<RemoteTask> taskQueue = new LinkedBlockingQueue<>();
     private final ExecutorService workerPool = Executors.newCachedThreadPool();
     private final ConcurrentHashMap<String, CompletableFuture<Object>> taskResults = new ConcurrentHashMap<>();
+    private final AtomicInteger workerCoresCount = new AtomicInteger(0);
+
+    public void addWorkerCores(Integer cores) {
+        workerCoresCount.addAndGet(cores);
+    }
 
     public Master(int port) {
         this.port = port;
@@ -31,7 +37,7 @@ public class Master {
                 Socket workerSocket = serverSocket.accept();
                 System.out.println("New worker connected: " + workerSocket.getInetAddress());
 
-                workerPool.submit(new WorkerHandler(workerSocket, taskQueue, taskResults));
+                workerPool.submit(new WorkerHandler(this, workerSocket, taskQueue, taskResults));
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -58,24 +64,37 @@ public class Master {
 
     public <T, R> Future<List<R>> remoteMap(SerializableFunction<T, R> function, List<T> data) {
         CompletableFuture<List<R>> future = new CompletableFuture<>();
-        List<Future<List<R>>> taskFutures = new ArrayList<>();
+        List<Future<Object>> taskFutures = new ArrayList<>();
+        List<List<T>> batches = new ArrayList<>();
 
-        // Разбиваем на задачи
-        for (T item : data) {
-//            LambdaTask<T, R> task = new LambdaTask<>(function, item);
-//            taskFutures.add(submitTask(task));
+        int batchSize = (int) Math.ceil((double) data.size() / workerCoresCount.get()); // Размер батча
+
+        // Разбиваем данные на батчи и сохраняем их порядок
+        for (int i = 0; i < data.size(); i += batchSize) {
+            batches.add(new ArrayList<>(data.subList(i, Math.min(i + batchSize, data.size()))));
         }
 
-        // Собираем результаты
+        // Приведение типа, чтобы соответствовало LambdaTask
+        @SuppressWarnings("unchecked")
+        SerializableFunction<Object, List<R>> adaptedFunction = (Object input) ->
+                ((List<T>) input).stream().map(function).toList();
+
+        // Создаем и отправляем задачи
+        for (List<T> batch : batches) {
+            LambdaTask<List<R>> task = new LambdaTask<>(adaptedFunction, batch);
+            taskFutures.add(submitTask(task));
+        }
+
+        // Собираем результаты в правильном порядке
         Executors.newCachedThreadPool().submit(() -> {
             try {
                 List<R> results = new ArrayList<>();
-                for (Future<List<R>> taskFuture : taskFutures) {
-                    results.addAll(taskFuture.get());
+                for (Future<Object> taskFuture : taskFutures) {
+                    results.addAll((List<R>)taskFuture.get()); // Собираем элементы в правильном порядке
                 }
-                future.complete(results);
+                future.complete(results); // Заполняем CompletableFuture списком результатов
             } catch (Exception e) {
-                future.completeExceptionally(e);
+                future.completeExceptionally(e); // Если ошибка, передаем ее в future
             }
         });
 
