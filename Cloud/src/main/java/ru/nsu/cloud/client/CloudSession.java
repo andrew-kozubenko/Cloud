@@ -1,5 +1,7 @@
 package ru.nsu.cloud.client;
 
+import java.io.IOException;
+
 public class CloudSession {
     private final CloudContext cloudContext;
 
@@ -13,6 +15,10 @@ public class CloudSession {
 
     public CloudContext cloudContext() {
         return cloudContext;
+    }
+
+    public void stop() throws IOException {
+        this.cloudContext.stop();
     }
 
     public static class CloudSessionBuilder {
