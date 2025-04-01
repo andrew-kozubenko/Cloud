@@ -90,7 +90,16 @@ public class LambdaTask<R> extends RemoteTask<R> implements Serializable {
         }
 
         try (ByteArrayInputStream bis = new ByteArrayInputStream(data);
-             ObjectInputStream ois = new ObjectInputStream(bis)) {
+             ObjectInputStream ois = new ObjectInputStream(bis) {
+                 @Override
+                 protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+                     try {
+                         return Class.forName(desc.getName(), false, Thread.currentThread().getContextClassLoader());
+                     } catch (ClassNotFoundException e) {
+                         return super.resolveClass(desc);
+                     }
+                 }
+             }) {
             return ois.readObject();
         } catch (IOException | ClassNotFoundException e) {
             logger.log(Level.SEVERE, "Error deserializing function", e);
