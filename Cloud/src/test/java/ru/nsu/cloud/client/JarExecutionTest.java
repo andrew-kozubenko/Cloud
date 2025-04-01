@@ -59,4 +59,30 @@ public class JarExecutionTest {
 
         assertEquals("7x^3 + 6x^2 + 19x + 6", result);
     }
+
+    @Test
+    public void testJarExecution2() throws Exception {
+        CloudSession cloud = CloudSession.builder()
+                .master("localhost", 9090)
+                .build();
+
+        Thread.sleep(1000);
+
+        CloudContext cloudContext = cloud.cloudContext();
+
+        // Получаем путь к JAR-файлу в ресурсах
+        URL jarUrl = getClass().getClassLoader().getResource("test2.jar");
+        if (jarUrl == null) {
+            throw new IllegalStateException("JAR file not found in resources");
+        }
+        Path jarPath = Paths.get(jarUrl.toURI());
+        System.out.println(jarPath);
+
+        // Отправляем задачу на удаленное выполнение JAR-а
+        String result = (String)cloudContext.submitJar(jarPath.toString(), "org.example.Main", "string");
+
+        Thread.sleep(3000);
+
+        assertEquals("YESSSS", result);
+    }
 }
