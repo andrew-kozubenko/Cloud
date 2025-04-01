@@ -1,7 +1,6 @@
 package ru.nsu.cloud.worker;
 
 import ru.nsu.cloud.api.RemoteTask;
-import ru.nsu.cloud.api.SerializableFunction;
 
 import java.io.*;
 import java.net.Socket;
