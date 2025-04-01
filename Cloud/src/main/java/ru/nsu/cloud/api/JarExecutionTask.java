@@ -30,9 +30,7 @@ public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвр
     @Override
     public Object execute() {
         try {
-            // Получаем путь к рабочему столу текущего пользователя
-            String desktopPath = System.getProperty("user.home") + File.separator + "Desktop";
-            File tempJarFile = new File(desktopPath, "temp.jar");
+            File tempJarFile = new File("temp.jar");
 
             // Сохраняем JAR файл в локальное место на удаленном компьютере
             try (FileOutputStream fos = new FileOutputStream(tempJarFile)) {
