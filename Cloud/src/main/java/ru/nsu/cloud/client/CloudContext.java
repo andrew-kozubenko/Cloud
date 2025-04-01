@@ -3,6 +3,7 @@ package ru.nsu.cloud.client;
 import ru.nsu.cloud.api.JarExecutionTask;
 import ru.nsu.cloud.master.Master;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 public class CloudContext {
     private final Master master;
@@ -16,8 +17,8 @@ public class CloudContext {
         return new CloudDataset<>(master, data);
     }
 
-    public void submitJar(String jarPath, String className, String methodName) {
+    public Object submitJar(String jarPath, String className, String methodName) throws ExecutionException, InterruptedException {
         JarExecutionTask task = new JarExecutionTask(jarPath, className, methodName);
-        master.submitTask(task);
+        return master.submitTask(task).get();
     }
 }

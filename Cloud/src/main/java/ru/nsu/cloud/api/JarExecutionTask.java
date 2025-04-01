@@ -30,18 +30,25 @@ public class JarExecutionTask extends RemoteTask<Object> {  // Тип возвр
     @Override
     public Object execute() {
         try {
+            // Получаем путь к рабочему столу текущего пользователя
+            String desktopPath = System.getProperty("user.home") + File.separator + "Desktop";
+            File tempJarFile = new File(desktopPath, "temp.jar");
+
             // Сохраняем JAR файл в локальное место на удаленном компьютере
-            File tempJarFile = new File("temp.jar");
             try (FileOutputStream fos = new FileOutputStream(tempJarFile)) {
                 fos.write(jarBytes);  // Записываем данные JAR в файл
             }
 
+            System.out.println("JAR saved: " + tempJarFile.getAbsolutePath());
+
             // Загружаем JAR в ClassLoader
             URL jarURL = tempJarFile.toURI().toURL();
-            try (URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL}, null)) {
+            try (URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL}, this.getClass().getClassLoader())) {
 
+                System.out.println("Getting class...");
                 // Загружаем указанный класс
-                Class<?> loadedClass = classLoader.loadClass(className);
+                Class<?> loadedClass = Class.forName(className, true, classLoader);
+                System.out.println("CLASS");
                 Method method = loadedClass.getMethod(methodName);
 
                 // Вызываем метод и получаем результат
