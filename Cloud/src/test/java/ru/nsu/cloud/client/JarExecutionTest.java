@@ -55,7 +55,7 @@ public class JarExecutionTest {
         // Отправляем задачу на удаленное выполнение JAR-а
         String result = (String)cloudContext.submitJar(jarPath.toString(), "org.example.Main", "mainResult");
 
-        Thread.sleep(3000);
+        cloud.stop();
 
         assertEquals("7x^3 + 6x^2 + 19x + 6", result);
     }
