@@ -3,6 +3,7 @@ package ru.nsu.cloud.client;
 import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
 import ru.nsu.cloud.api.SerializableFunction;
+import ru.nsu.cloud.example.MultiplicationFunction;
 import ru.nsu.cloud.master.Master;
 import ru.nsu.cloud.worker.WorkerNode;
 
@@ -134,10 +135,7 @@ public class ClientTest {
         // 1. Создаём контекст для работы с облаком
         CloudContext cloudContext = cloud.cloudContext();
 
-        SerializableFunction<Object, Integer> multiplicationFunction = (input) -> {
-            List<Integer> inputList = (List<Integer>) input;
-            return inputList.stream().mapToInt(i -> i * 2).sum();
-        };
+        MultiplicationFunction multiplicationFunction = new MultiplicationFunction();
 
         List<Integer> inputData = List.of(1, 2, 3, 4, 5);
         LambdaTask<Integer> task = new LambdaTask<>(multiplicationFunction, inputData);
