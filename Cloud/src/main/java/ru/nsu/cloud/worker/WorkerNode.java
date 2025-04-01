@@ -111,7 +111,7 @@ public class WorkerNode {
 //        int masterPort = Integer.parseInt(args[1]);
 
         //WorkerNode worker = new WorkerNode(masterHost, masterPort);
-        WorkerNode worker = new WorkerNode("192.168.84.203", 9090);
+        WorkerNode worker = new WorkerNode("192.168.84.227", 9090);
         worker.start();
     }
 }
