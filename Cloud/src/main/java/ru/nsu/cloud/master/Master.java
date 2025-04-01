@@ -5,6 +5,7 @@ import ru.nsu.cloud.api.RemoteTask;
 import ru.nsu.cloud.api.SerializableFunction;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -34,7 +35,7 @@ public class Master {
 
     public void start() {
         try {
-            serverSocket = new ServerSocket(port);
+            serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
             logger.info("Master started on port: " + port);
 
             while (!serverSocket.isClosed() && !Thread.interrupted()) {

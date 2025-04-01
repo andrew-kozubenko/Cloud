@@ -19,19 +19,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class ClientTest {
     private WorkerNode worker;
     private ExecutorService workerExecutor;
-
-    @BeforeEach
-    void setUp() throws Exception {
-        worker = new WorkerNode("localhost", 9090);
-        workerExecutor =  Executors.newCachedThreadPool();
-        workerExecutor.submit(worker::start);
-    }
-
-    @AfterEach
-    void tearDown() throws IOException {
-        worker.stopWorker();
-        workerExecutor.shutdown();
-    }
+//
+//    @BeforeEach
+//    void setUp() throws Exception {
+//        worker = new WorkerNode("localhost", 9090);
+//        workerExecutor =  Executors.newCachedThreadPool();
+//        workerExecutor.submit(worker::start);
+//    }
+//
+//    @AfterEach
+//    void tearDown() throws IOException {
+//        worker.stopWorker();
+//        workerExecutor.shutdown();
+//    }
 
     @Test
     public void testRemoteComputation() throws IOException, InterruptedException {
