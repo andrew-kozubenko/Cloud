@@ -1,6 +1,8 @@
 package ru.nsu.cloud.worker;
 
 import ru.nsu.cloud.api.RemoteTask;
+import ru.nsu.cloud.api.SerializableFunction;
+
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
@@ -8,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 
 public class WorkerNode {
     private static final Logger logger = Logger.getLogger(WorkerNode.class.getName());
@@ -108,7 +111,7 @@ public class WorkerNode {
 //        int masterPort = Integer.parseInt(args[1]);
 
         //WorkerNode worker = new WorkerNode(masterHost, masterPort);
-        WorkerNode worker = new WorkerNode("192.168.206.203", 9090);
+        WorkerNode worker = new WorkerNode("192.168.84.203", 9090);
         worker.start();
     }
 }
