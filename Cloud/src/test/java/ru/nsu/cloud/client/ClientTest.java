@@ -50,8 +50,9 @@ public class ClientTest {
         List<Integer> data = List.of(1, 2, 3, 4, 5);
         var dataset = cloudContext.parallelize(data);
 
+        MultByTwo multByTwo = new MultByTwo();
         // 3. Применяем удалённое вычисление (умножаем на 2)
-        var transformedDataset = dataset.map(x -> x * 2);
+        var transformedDataset = dataset.map(multByTwo);
 
         // 4. Собираем результат
         List<Integer> result = transformedDataset.collect();
