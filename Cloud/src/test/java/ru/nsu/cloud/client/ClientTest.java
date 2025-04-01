@@ -23,7 +23,7 @@ public class ClientTest {
     @BeforeEach
     void setUp() throws Exception {
         worker = new WorkerNode("localhost", 9090);
-        workerExecutor = Executors.newSingleThreadExecutor();
+        workerExecutor =  Executors.newCachedThreadPool();
         workerExecutor.submit(worker::start);
     }
 
@@ -85,6 +85,40 @@ public class ClientTest {
         List<Integer> expected = IntStream.range(1, 10_001).map(x -> x * 2).boxed().toList();
 
         cloud.stop();
+
+        assertEquals(expected, result);
+    }
+
+
+    @Test
+    public void testRemoteComputationLargeDatasetWithMultipleWorkers() throws InterruptedException, IOException {
+        WorkerNode worker2 = new WorkerNode("localhost", 9090);
+        workerExecutor.submit(worker2::start);
+
+        CloudSession cloud = CloudSession.builder()
+                .master("192.168.1.100", 9090)
+                .build();
+
+        Thread.sleep(1000);
+
+        // 1. Создаём контекст для работы с облаком
+        CloudContext cloudContext = cloud.cloudContext();
+
+        // 2. Генерируем большой массив данных (10_000 элементов)
+        List<Integer> data = IntStream.range(1, 10_001).boxed().toList();
+        var dataset = cloudContext.parallelize(data);
+
+        // 3. Применяем удалённое вычисление (каждое число умножается на 2)
+        var transformedDataset = dataset.map(x -> x * 2);
+
+        // 4. Собираем результат
+        List<Integer> result = transformedDataset.collect();
+
+        // 5. Проверяем, что все элементы умножились на 2
+        List<Integer> expected = IntStream.range(1, 10_001).map(x -> x * 2).boxed().toList();
+
+        cloud.stop();
+        worker2.stopWorker();
 
         assertEquals(expected, result);
     }
