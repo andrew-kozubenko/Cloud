@@ -3,6 +3,7 @@ package ru.nsu.cloud.client;
 import org.junit.jupiter.api.*;
 import ru.nsu.cloud.api.LambdaTask;
 import ru.nsu.cloud.api.SerializableFunction;
+import ru.nsu.cloud.example.MultByTwo;
 import ru.nsu.cloud.example.MultiplicationFunction;
 import ru.nsu.cloud.master.Master;
 import ru.nsu.cloud.worker.WorkerNode;
@@ -76,8 +77,9 @@ public class ClientTest {
         List<Integer> data = IntStream.range(1, 10_001).boxed().toList();
         var dataset = cloudContext.parallelize(data);
 
+        MultByTwo multByTwo = new MultByTwo();
         // 3. Применяем удалённое вычисление (каждое число умножается на 2)
-        var transformedDataset = dataset.map(x -> x * 2);
+        var transformedDataset = dataset.map(multByTwo);
 
         // 4. Собираем результат
         List<Integer> result = transformedDataset.collect();
@@ -109,8 +111,9 @@ public class ClientTest {
         List<Integer> data = IntStream.range(1, 10_001).boxed().toList();
         var dataset = cloudContext.parallelize(data);
 
+        MultByTwo multByTwo = new MultByTwo();
         // 3. Применяем удалённое вычисление (каждое число умножается на 2)
-        var transformedDataset = dataset.map(x -> x * 2);
+        var transformedDataset = dataset.map(multByTwo);
 
         // 4. Собираем результат
         List<Integer> result = transformedDataset.collect();
